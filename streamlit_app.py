@@ -56,6 +56,18 @@ RELATION_LABELS = {
     "synchronous_or_unclear": "Synchronous or unclear",
 }
 PREVALENCE_AXIS_LABEL = "Annual document prevalence (% of source-domain documents in year)"
+MERGE_COMPONENT_COLUMNS = [
+    "topic_id",
+    "macro_topic",
+    "source",
+    "subgroup",
+    "final_merge_group_id",
+    "component_micro_topic_id",
+    "component_topic_name",
+    "component_count",
+    "component_representation",
+    "component_order",
+]
 
 
 def clean_text(value: object) -> str:
@@ -164,6 +176,11 @@ def load_app_data(data_dir_text: str) -> tuple[dict[str, Any], list[str]]:
         "interpretations": json.loads((data_dir / "panel_interpretations.json").read_text(encoding="utf-8")),
         "manifest": json.loads((data_dir / "app_data_manifest.json").read_text(encoding="utf-8")),
     }
+    merge_components_path = data_dir / "topic_merge_components.csv"
+    if merge_components_path.exists():
+        data["topic_merge_components"] = pd.read_csv(merge_components_path).fillna("")
+    else:
+        data["topic_merge_components"] = pd.DataFrame(columns=MERGE_COMPONENT_COLUMNS)
     return data, []
 
 
@@ -309,6 +326,42 @@ def render_topic_descriptions(topic: pd.Series) -> None:
                 st.write(text or "No description available.")
 
 
+def render_merge_composition(merge_components: pd.DataFrame, topic: pd.Series) -> None:
+    topic_id = clean_text(topic.get("topic_id", ""))
+    group_size = int(numeric(topic.get("group_size", 0)))
+    with st.expander("Merged topic composition", expanded=False):
+        if merge_components.empty:
+            st.info("Merge-composition data is not available in the current app data package.")
+            return
+        components = merge_components[merge_components["topic_id"] == topic_id].copy()
+        if components.empty:
+            st.info("No merge-composition rows were found for this topic.")
+            return
+        components["component_order"] = pd.to_numeric(components["component_order"], errors="coerce").fillna(0)
+        components["component_count"] = pd.to_numeric(components["component_count"], errors="coerce")
+        components = components.sort_values("component_order", kind="mergesort")
+        if group_size <= 1 or len(components) <= 1:
+            st.info("Singleton topic: this consolidated topic contains one original microtopic.")
+        else:
+            st.caption(f"{len(components):,} original microtopics compose this consolidated topic.")
+        table = components[
+            [
+                "component_micro_topic_id",
+                "component_topic_name",
+                "component_count",
+                "component_representation",
+            ]
+        ].rename(
+            columns={
+                "component_micro_topic_id": "Original microtopic ID",
+                "component_topic_name": "Original BERTopic label/name",
+                "component_count": "Count",
+                "component_representation": "Top words / representation",
+            }
+        )
+        st.dataframe(table, hide_index=True, use_container_width=True)
+
+
 def evidence_for_year(evidence: pd.DataFrame, topic_id: str, selected_year: int | None) -> pd.Series | None:
     topic_evidence = evidence[evidence["topic_id"] == topic_id].copy()
     if topic_evidence.empty:
@@ -376,6 +429,7 @@ def render_topic_detail(
     topic: pd.Series,
     year_series: pd.DataFrame,
     year_evidence: pd.DataFrame,
+    topic_merge_components: pd.DataFrame,
     override_series: pd.DataFrame | None = None,
 ) -> None:
     topic_id = clean_text(topic.get("topic_id", ""))
@@ -385,6 +439,7 @@ def render_topic_detail(
     source = SOURCE_LABELS.get(clean_text(topic.get("source", "")), clean_text(topic.get("source", "")))
     st.caption(f"{source} · {status} · {clean_text(topic.get('final_merge_group_id', ''))}")
     render_topic_metrics(topic, series)
+    render_merge_composition(topic_merge_components, topic)
     line_chart(series, "Temporal evolution")
     render_topic_descriptions(topic)
     render_evidence(year_evidence, topic_id, series)
@@ -422,7 +477,12 @@ def render_topic_mode(data: dict[str, Any], macro_topic: str, source: str) -> No
         )
     with right:
         topic = filtered[filtered["topic_id"] == selected_id].iloc[0]
-        render_topic_detail(topic, data["year_series"], data["year_evidence"])
+        render_topic_detail(
+            topic,
+            data["year_series"],
+            data["year_evidence"],
+            data["topic_merge_components"],
+        )
 
 
 def render_relation_chart(panel_series: pd.DataFrame, corporate_topic_id: str) -> None:
@@ -506,6 +566,7 @@ def render_anchor_evidence_picker(data: dict[str, Any], anchor: pd.Series, match
     )
     topic = option_rows[option_rows["topic_id"] == selected].iloc[0]
     series = data["year_series"][data["year_series"]["topic_id"] == selected]
+    render_merge_composition(data["topic_merge_components"], topic)
     render_evidence(data["year_evidence"], selected, series)
 
 
@@ -530,7 +591,13 @@ def render_unpaired_section(data: dict[str, Any], macro_topic: str) -> None:
     )
     topic = unpaired[unpaired["topic_id"] == selected].iloc[0]
     series = data["unpaired_series"][data["unpaired_series"]["topic_id"] == selected]
-    render_topic_detail(topic, data["year_series"], data["year_evidence"], override_series=series)
+    render_topic_detail(
+        topic,
+        data["year_series"],
+        data["year_evidence"],
+        data["topic_merge_components"],
+        override_series=series,
+    )
 
 
 def render_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
@@ -555,6 +622,7 @@ def render_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
         st.caption(f"Corporate anchor · {clean_text(anchor.get('final_merge_group_id', ''))}")
         render_relation_metrics(data["panel_series"], selected_anchor)
         render_relation_chart(data["panel_series"], selected_anchor)
+        render_merge_composition(data["topic_merge_components"], anchor)
 
         interpretation = relation_interpretation(data, topic_label(anchor))
         if interpretation:

@@ -68,6 +68,8 @@ metadata, year, source, chunk IDs, document IDs, and source links when available
 It does not export full representative-document text to `data/app_data/`.
 Temporal charts use annual document prevalence: topic documents in a given year
 divided by all source-domain documents in that same year.
+Merged-topic composition tables list only original microtopic IDs, labels,
+counts, and top-word representations.
 
 ## Scripts
 
@@ -79,7 +81,7 @@ divided by all source-domain documents in that same year.
   macro-topic from the final relative-salience series.
 - `scripts/build_streamlit_app_data.py`: builds the public-safe data package for
   the Streamlit explorer, including annual-prevalence series and temporal
-  relation tables.
+  relation tables, and merged-topic composition tables.
 - `scripts/run_all.py`: runs the three steps above.
 
 ## Notes

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 from pathlib import Path
@@ -55,8 +56,13 @@ def write_csv(frame: pd.DataFrame, output_dir: Path, filename: str) -> Path:
 
 
 def clean_text(value: object) -> str:
-    if pd.isna(value):
+    if value is None:
         return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
     return re.sub(r"\s+", " ", str(value)).strip()
 
 
@@ -67,6 +73,30 @@ def parse_json(value: object, default: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return default
+
+
+def parse_list(value: object) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return []
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            parsed = parser(value)
+        except (json.JSONDecodeError, ValueError, SyntaxError):
+            continue
+        if isinstance(parsed, list):
+            return parsed
+    return []
+
+
+def compact_representation(value: object, limit: int = 12) -> str:
+    items = [clean_text(item) for item in parse_list(value)]
+    items = [item for item in items if item]
+    if not items:
+        text = clean_text(value)
+        return "" if text.startswith("[") and text.endswith("]") else text
+    return " · ".join(items[:limit])
 
 
 def make_topic_id(subgroup: object, group_id: object) -> str:
@@ -289,6 +319,88 @@ def build_year_series(pipeline_root: Path, topics: pd.DataFrame) -> pd.DataFrame
                 )
 
     return pd.DataFrame(output_rows).sort_values(["topic_id", "year"], kind="mergesort")
+
+
+def build_topic_merge_components(pipeline_root: Path, topics: pd.DataFrame) -> pd.DataFrame:
+    merged_root = pipeline_root / "outputs" / "bertopic_micro_merged_multiaspect_reviewed"
+    original_root = pipeline_root / "outputs" / "bertopic_micro_unsupervised_multiaspect"
+    rows: list[dict[str, object]] = []
+    topic_key = topics[
+        ["topic_id", "macro_topic", "source", "subgroup", "final_merge_group_id"]
+    ].drop_duplicates().copy()
+    topic_key["final_merge_group_id"] = topic_key["final_merge_group_id"].astype(str)
+
+    for subgroup, requested in topic_key.groupby("subgroup", sort=True):
+        merged_path = merged_root / str(subgroup) / "topic_info.csv"
+        if not merged_path.exists():
+            continue
+        merged_info = read_csv(merged_path).fillna("")
+        merged_info["final_merge_group_id"] = merged_info["final_merge_group_id"].astype(str)
+        merged_lookup = {
+            str(row.final_merge_group_id): row
+            for row in merged_info.itertuples(index=False)
+            if clean_text(getattr(row, "final_merge_group_id", ""))
+        }
+
+        original_path = original_root / str(subgroup) / "topic_info.csv"
+        if original_path.exists():
+            original_info = read_csv(original_path).fillna("")
+            original_lookup = {
+                str(row.Topic): row
+                for row in original_info.itertuples(index=False)
+                if clean_text(getattr(row, "Topic", ""))
+            }
+        else:
+            original_lookup = {}
+
+        for topic in requested.itertuples(index=False):
+            group_id = str(topic.final_merge_group_id)
+            merged_row = merged_lookup.get(group_id)
+            if merged_row is None:
+                continue
+            member_ids = parse_list(getattr(merged_row, "member_micro_topic_ids_json", ""))
+            member_names = parse_list(getattr(merged_row, "member_topic_names_json", ""))
+            if not member_ids:
+                member_ids = [getattr(merged_row, "Topic", "")]
+            for order, component_id in enumerate(member_ids, start=1):
+                component_key = str(component_id)
+                original = original_lookup.get(component_key)
+                fallback_name = clean_text(member_names[order - 1]) if order <= len(member_names) else ""
+                rows.append(
+                    {
+                        "topic_id": topic.topic_id,
+                        "macro_topic": topic.macro_topic,
+                        "source": topic.source,
+                        "subgroup": topic.subgroup,
+                        "final_merge_group_id": group_id,
+                        "component_micro_topic_id": component_key,
+                        "component_topic_name": clean_text(getattr(original, "Name", "")) if original is not None else fallback_name,
+                        "component_count": getattr(original, "Count", "") if original is not None else "",
+                        "component_representation": compact_representation(
+                            getattr(original, "Representation", "") if original is not None else ""
+                        ),
+                        "component_order": int(order),
+                    }
+                )
+
+    columns = [
+        "topic_id",
+        "macro_topic",
+        "source",
+        "subgroup",
+        "final_merge_group_id",
+        "component_micro_topic_id",
+        "component_topic_name",
+        "component_count",
+        "component_representation",
+        "component_order",
+    ]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows)[columns].sort_values(
+        ["macro_topic", "source", "topic_id", "component_order"],
+        kind="mergesort",
+    )
 
 
 def collect_words(rows: pd.DataFrame, limit: int = 14) -> list[str]:
@@ -560,6 +672,7 @@ def main() -> None:
 
     topics = build_topics(args.pipeline_root)
     year_series = build_year_series(args.pipeline_root, topics)
+    topic_merge_components = build_topic_merge_components(args.pipeline_root, topics)
     year_evidence = build_year_evidence(args.pipeline_root, topics, args.public_safe, args.snippet_chars)
     relations = build_relations(args.pipeline_root)
     panel_series = build_panel_series(args.pipeline_root)
@@ -576,6 +689,7 @@ def main() -> None:
     outputs = {
         "topics": str(write_csv(topics, args.output_dir, "topics.csv")),
         "year_series": str(write_csv(year_series, args.output_dir, "year_series.csv")),
+        "topic_merge_components": str(write_csv(topic_merge_components, args.output_dir, "topic_merge_components.csv")),
         "year_evidence": str(write_csv(year_evidence, args.output_dir, "year_evidence.csv")),
         "relations": str(write_csv(relations, args.output_dir, "relations.csv")),
         "panel_series": str(write_csv(panel_series, args.output_dir, "panel_series.csv")),
@@ -596,6 +710,7 @@ def main() -> None:
         "row_counts": {
             "topics": int(len(topics)),
             "year_series": int(len(year_series)),
+            "topic_merge_components": int(len(topic_merge_components)),
             "year_evidence": int(len(year_evidence)),
             "relations": int(len(relations)),
             "panel_series": int(len(panel_series)),
