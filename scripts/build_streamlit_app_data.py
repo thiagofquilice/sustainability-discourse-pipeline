@@ -26,6 +26,8 @@ DENOMINATOR_COLUMNS = {
     "media": "media_document_count",
     "corporate": "corporate_document_count",
 }
+YEARS = list(range(2000, 2026))
+DOCUMENT_ID_COLUMNS = ["source_doc_id", "document_id", "doc_id"]
 TEXT_COLUMNS = [f"chunk_text_{idx}" for idx in range(1, 6)]
 CHUNK_ID_COLUMNS = [f"chunk_id_{idx}" for idx in range(1, 6)]
 
@@ -69,6 +71,13 @@ def parse_json(value: object, default: Any) -> Any:
 
 def make_topic_id(subgroup: object, group_id: object) -> str:
     return f"{subgroup}::{group_id}"
+
+
+def detect_document_id_column(columns: pd.Index) -> str:
+    for column in DOCUMENT_ID_COLUMNS:
+        if column in columns:
+            return column
+    raise KeyError("Could not find source_doc_id, document_id, or doc_id in document_topics.csv")
 
 
 def macro_topic_name(macro_topic: object, fallback: object = "") -> str:
@@ -207,60 +216,79 @@ def load_selected_key(pipeline_root: Path) -> pd.DataFrame:
     return selected.drop_duplicates()
 
 
-def load_denominator_map(pipeline_root: Path) -> dict[tuple[str, str], int]:
-    denominator_path = (
-        pipeline_root
-        / "outputs"
-        / "paper_tables"
-        / "corporate_focus_document_counts"
-        / "macro_topic_document_counts_final_by_source.csv"
-    )
-    denominators = read_csv(denominator_path)
-    mapping: dict[tuple[str, str], int] = {}
-    for row in denominators.itertuples(index=False):
-        for source, column in DENOMINATOR_COLUMNS.items():
-            mapping[(row.macro_topic, source)] = int(getattr(row, column))
-    return mapping
-
-
 def build_year_series(pipeline_root: Path, topics: pd.DataFrame) -> pd.DataFrame:
-    evidence_path = pipeline_root / "outputs" / "corporate_focus_stage12_colab_drive_with_overrides" / "data" / "micro_topic_year_evidence.csv"
-    selected = load_selected_key(pipeline_root)
-    denominators = load_denominator_map(pipeline_root)
-    topic_ids = set(topics["topic_id"])
-    chunks: list[pd.DataFrame] = []
+    merged_root = pipeline_root / "outputs" / "bertopic_micro_merged_multiaspect_reviewed"
+    topic_key = topics[
+        ["topic_id", "macro_topic", "source", "subgroup", "final_merge_group_id"]
+    ].drop_duplicates().copy()
+    topic_key["final_merge_group_id"] = topic_key["final_merge_group_id"].astype(str)
+    output_rows: list[dict[str, object]] = []
 
-    usecols = ["subgroup", "source", "assigned_label", "micro_topic_id", "year", "year_frequency"]
-    for evidence in pd.read_csv(evidence_path, usecols=usecols, chunksize=50000):
-        merged = evidence.merge(
-            selected,
-            on=["subgroup", "source", "assigned_label", "micro_topic_id"],
-            how="inner",
+    for subgroup, requested in topic_key.groupby("subgroup", sort=True):
+        path = merged_root / str(subgroup) / "document_topics.csv"
+        header = pd.read_csv(path, nrows=0)
+        doc_column = detect_document_id_column(header.columns)
+        doc_topics = pd.read_csv(
+            path,
+            usecols=[doc_column, "assigned_label", "source", "year", "final_merge_group_id"],
         )
-        merged["topic_id"] = [make_topic_id(row.subgroup, row.final_merge_group_id) for row in merged.itertuples(index=False)]
-        merged = merged[merged["topic_id"].isin(topic_ids)]
-        if not merged.empty:
-            chunks.append(merged)
-    if not chunks:
-        return pd.DataFrame()
+        doc_topics = doc_topics.rename(columns={doc_column: "stable_doc_id"})
+        doc_topics = doc_topics.dropna(
+            subset=["stable_doc_id", "assigned_label", "source", "year", "final_merge_group_id"]
+        ).copy()
+        doc_topics["stable_doc_id"] = doc_topics["stable_doc_id"].astype(str)
+        doc_topics["final_merge_group_id"] = doc_topics["final_merge_group_id"].astype(str)
+        doc_topics["year"] = pd.to_numeric(doc_topics["year"], errors="coerce")
+        doc_topics = doc_topics.dropna(subset=["year"]).copy()
+        doc_topics["year"] = doc_topics["year"].astype(int)
 
-    frame = pd.concat(chunks, ignore_index=True)
-    grouped = (
-        frame.groupby(["topic_id", "assigned_label", "source", "year"], as_index=False)["year_frequency"]
-        .sum()
-        .rename(columns={"assigned_label": "macro_topic"})
-    )
-    grouped["denominator_source_docs_in_macro_topic"] = [
-        denominators.get((row.macro_topic, row.source), 0)
-        for row in grouped.itertuples(index=False)
-    ]
-    grouped["relative_share_of_macro_topic_source_docs"] = grouped.apply(
-        lambda row: float(row["year_frequency"]) / float(row["denominator_source_docs_in_macro_topic"])
-        if row["denominator_source_docs_in_macro_topic"]
-        else 0.0,
-        axis=1,
-    )
-    return grouped.sort_values(["topic_id", "year"], kind="mergesort")
+        annual_denominator = (
+            doc_topics.groupby(["assigned_label", "source", "year"], sort=False)["stable_doc_id"]
+            .nunique()
+            .astype(int)
+            .to_dict()
+        )
+        period_denominator = (
+            doc_topics.groupby(["assigned_label", "source"], sort=False)["stable_doc_id"]
+            .nunique()
+            .astype(int)
+            .to_dict()
+        )
+        topic_year_counts = (
+            doc_topics.groupby(["final_merge_group_id", "assigned_label", "source", "year"], sort=False)[
+                "stable_doc_id"
+            ]
+            .nunique()
+            .astype(int)
+            .to_dict()
+        )
+
+        for topic in requested.itertuples(index=False):
+            macro_topic = str(topic.macro_topic)
+            source = str(topic.source)
+            group_id = str(topic.final_merge_group_id)
+            period_docs = int(period_denominator.get((macro_topic, source), 0))
+            for year in YEARS:
+                docs = int(topic_year_counts.get((group_id, macro_topic, source, year), 0))
+                annual_docs = int(annual_denominator.get((macro_topic, source, year), 0))
+                output_rows.append(
+                    {
+                        "topic_id": topic.topic_id,
+                        "macro_topic": macro_topic,
+                        "source": source,
+                        "year": int(year),
+                        "year_frequency": docs,
+                        "year_document_count": docs,
+                        "denominator_source_docs_in_macro_topic": period_docs,
+                        "relative_share_of_macro_topic_source_docs": float(docs) / float(period_docs)
+                        if period_docs
+                        else 0.0,
+                        "annual_source_macro_document_count": annual_docs,
+                        "annual_document_prevalence": float(docs) / float(annual_docs) if annual_docs else 0.0,
+                    }
+                )
+
+    return pd.DataFrame(output_rows).sort_values(["topic_id", "year"], kind="mergesort")
 
 
 def collect_words(rows: pd.DataFrame, limit: int = 14) -> list[str]:
@@ -461,6 +489,21 @@ def build_unpaired_series(pipeline_root: Path) -> pd.DataFrame:
     return series
 
 
+def build_source_relation_tables(pipeline_root: Path) -> dict[str, pd.DataFrame]:
+    relation_root = pipeline_root / "outputs" / "paper_tables" / "corporate_focus_source_topic_relations"
+    files = {
+        "source_relation_aggregate_summary": "aggregate_source_relations_summary.csv",
+        "source_relation_individual_summary": "individual_source_relations_summary.csv",
+        "source_relation_aggregate_lag_details": "aggregate_source_relations_lag_details.csv",
+        "source_relation_individual_lag_details": "individual_source_relations_lag_details.csv",
+    }
+    tables: dict[str, pd.DataFrame] = {}
+    for key, filename in files.items():
+        path = relation_root / filename
+        tables[key] = read_csv(path) if path.exists() else pd.DataFrame()
+    return tables
+
+
 def parse_interpretations(markdown_path: Path) -> dict[str, Any]:
     if not markdown_path.exists():
         return {"anchors": {}, "unpaired": {}}
@@ -521,6 +564,7 @@ def main() -> None:
     relations = build_relations(args.pipeline_root)
     panel_series = build_panel_series(args.pipeline_root)
     unpaired_series = build_unpaired_series(args.pipeline_root)
+    source_relation_tables = build_source_relation_tables(args.pipeline_root)
     interpretations = parse_interpretations(
         args.pipeline_root
         / "outputs"
@@ -538,6 +582,8 @@ def main() -> None:
         "unpaired_series": str(write_csv(unpaired_series, args.output_dir, "unpaired_series.csv")),
         "panel_interpretations": str(args.output_dir / "panel_interpretations.json"),
     }
+    for key, frame in source_relation_tables.items():
+        outputs[key] = str(write_csv(frame, args.output_dir, f"{key}.csv"))
     (args.output_dir / "panel_interpretations.json").write_text(
         json.dumps(interpretations, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -554,6 +600,14 @@ def main() -> None:
             "relations": int(len(relations)),
             "panel_series": int(len(panel_series)),
             "unpaired_series": int(len(unpaired_series)),
+            "source_relation_aggregate_summary": int(len(source_relation_tables["source_relation_aggregate_summary"])),
+            "source_relation_individual_summary": int(len(source_relation_tables["source_relation_individual_summary"])),
+            "source_relation_aggregate_lag_details": int(
+                len(source_relation_tables["source_relation_aggregate_lag_details"])
+            ),
+            "source_relation_individual_lag_details": int(
+                len(source_relation_tables["source_relation_individual_lag_details"])
+            ),
             "anchor_interpretations": int(len(interpretations.get("anchors", {}))),
             "unpaired_interpretations": int(len(interpretations.get("unpaired", {}))),
         },

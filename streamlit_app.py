@@ -50,6 +50,12 @@ SERIES_COLORS = {
     "Media": "#e76f51",
     "Corporate": "#2f4858",
 }
+RELATION_LABELS = {
+    "external_leads": "External leads",
+    "corporate_leads": "Corporate leads",
+    "synchronous_or_unclear": "Synchronous or unclear",
+}
+PREVALENCE_AXIS_LABEL = "Annual document prevalence (% of source-domain documents in year)"
 
 
 def clean_text(value: object) -> str:
@@ -68,6 +74,25 @@ def numeric(value: object, default: float = 0.0) -> float:
 def integer_text(value: object) -> str:
     number = numeric(value)
     return f"{int(number):,}" if number else "0"
+
+
+def decimal_text(value: object, digits: int = 3) -> str:
+    converted = pd.to_numeric(value, errors="coerce")
+    if pd.isna(converted):
+        return "n/a"
+    return f"{float(converted):.{digits}f}"
+
+
+def lag_text(value: object) -> str:
+    converted = pd.to_numeric(value, errors="coerce")
+    if pd.isna(converted):
+        return "n/a"
+    lag = int(converted)
+    if lag > 0:
+        return f"+{lag} external leads"
+    if lag < 0:
+        return f"{lag} corporate leads"
+    return "0 synchronous"
 
 
 def parse_json(value: object, default: Any) -> Any:
@@ -106,6 +131,10 @@ def load_app_data(data_dir_text: str) -> tuple[dict[str, Any], list[str]]:
         "relations.csv",
         "panel_series.csv",
         "unpaired_series.csv",
+        "source_relation_aggregate_summary.csv",
+        "source_relation_individual_summary.csv",
+        "source_relation_aggregate_lag_details.csv",
+        "source_relation_individual_lag_details.csv",
         "panel_interpretations.json",
         "app_data_manifest.json",
     ]
@@ -120,6 +149,18 @@ def load_app_data(data_dir_text: str) -> tuple[dict[str, Any], list[str]]:
         "relations": pd.read_csv(data_dir / "relations.csv").fillna(""),
         "panel_series": pd.read_csv(data_dir / "panel_series.csv").fillna(""),
         "unpaired_series": pd.read_csv(data_dir / "unpaired_series.csv").fillna(""),
+        "source_relation_aggregate_summary": pd.read_csv(
+            data_dir / "source_relation_aggregate_summary.csv"
+        ).fillna(""),
+        "source_relation_individual_summary": pd.read_csv(
+            data_dir / "source_relation_individual_summary.csv"
+        ).fillna(""),
+        "source_relation_aggregate_lag_details": pd.read_csv(
+            data_dir / "source_relation_aggregate_lag_details.csv"
+        ).fillna(""),
+        "source_relation_individual_lag_details": pd.read_csv(
+            data_dir / "source_relation_individual_lag_details.csv"
+        ).fillna(""),
         "interpretations": json.loads((data_dir / "panel_interpretations.json").read_text(encoding="utf-8")),
         "manifest": json.loads((data_dir / "app_data_manifest.json").read_text(encoding="utf-8")),
     }
@@ -131,11 +172,36 @@ def normalize_series(frame: pd.DataFrame) -> pd.DataFrame:
         return frame.copy()
     normalized = frame.copy()
     normalized["year"] = pd.to_numeric(normalized["year"], errors="coerce").astype("Int64")
-    normalized["year_frequency"] = pd.to_numeric(normalized["year_frequency"], errors="coerce").fillna(0)
-    normalized["relative_share_of_macro_topic_source_docs"] = pd.to_numeric(
-        normalized["relative_share_of_macro_topic_source_docs"], errors="coerce"
+    count_fallback = (
+        normalized["year_frequency"] if "year_frequency" in normalized.columns else pd.Series(0, index=normalized.index)
+    )
+    if "year_document_count" in normalized.columns:
+        normalized["year_document_count"] = pd.to_numeric(normalized["year_document_count"], errors="coerce").fillna(0)
+    else:
+        normalized["year_document_count"] = pd.to_numeric(count_fallback, errors="coerce").fillna(0)
+    normalized["year_frequency"] = pd.to_numeric(
+        count_fallback if "year_frequency" in normalized.columns else normalized["year_document_count"], errors="coerce"
     ).fillna(0)
-    normalized["relative_share_percent"] = normalized["relative_share_of_macro_topic_source_docs"] * 100
+    if "annual_source_macro_document_count" in normalized.columns:
+        normalized["annual_source_macro_document_count"] = pd.to_numeric(
+            normalized["annual_source_macro_document_count"], errors="coerce"
+        ).fillna(0)
+    else:
+        normalized["annual_source_macro_document_count"] = 0
+    if "annual_document_prevalence" in normalized.columns:
+        normalized["annual_document_prevalence"] = pd.to_numeric(
+            normalized["annual_document_prevalence"], errors="coerce"
+        ).fillna(0)
+    else:
+        relative_fallback = (
+            normalized["relative_share_of_macro_topic_source_docs"]
+            if "relative_share_of_macro_topic_source_docs" in normalized.columns
+            else pd.Series(0, index=normalized.index)
+        )
+        normalized["annual_document_prevalence"] = pd.to_numeric(
+            relative_fallback, errors="coerce"
+        ).fillna(0)
+    normalized["relative_share_percent"] = normalized["annual_document_prevalence"] * 100
     return normalized
 
 
@@ -154,11 +220,16 @@ def line_chart(frame: pd.DataFrame, title: str, color_column: str | None = None)
             color_discrete_map=SERIES_COLORS,
             labels={
                 "year": "Year",
-                "relative_share_percent": "Relative salience (% of source-domain documents)",
+                "relative_share_percent": PREVALENCE_AXIS_LABEL,
                 color_column: "Series",
-                "year_frequency": "Documents",
+                "year_document_count": "Topic documents",
+                "annual_source_macro_document_count": "Source-domain documents",
             },
-            hover_data={"year_frequency": ":,", "relative_share_percent": ":.3f"},
+            hover_data={
+                "year_document_count": ":,",
+                "annual_source_macro_document_count": ":,",
+                "relative_share_percent": ":.3f",
+            },
             title=title,
         )
     else:
@@ -169,10 +240,15 @@ def line_chart(frame: pd.DataFrame, title: str, color_column: str | None = None)
             markers=True,
             labels={
                 "year": "Year",
-                "relative_share_percent": "Relative salience (% of source-domain documents)",
-                "year_frequency": "Documents",
+                "relative_share_percent": PREVALENCE_AXIS_LABEL,
+                "year_document_count": "Topic documents",
+                "annual_source_macro_document_count": "Source-domain documents",
             },
-            hover_data={"year_frequency": ":,", "relative_share_percent": ":.3f"},
+            hover_data={
+                "year_document_count": ":,",
+                "annual_source_macro_document_count": ":,",
+                "relative_share_percent": ":.3f",
+            },
             title=title,
         )
     figure.update_layout(
@@ -187,9 +263,11 @@ def line_chart(frame: pd.DataFrame, title: str, color_column: str | None = None)
 
 def render_topic_metrics(topic: pd.Series, series: pd.DataFrame) -> None:
     series = normalize_series(series)
-    total_documents = int(series["year_frequency"].sum()) if not series.empty else int(numeric(topic.get("group_size", 0)))
-    if not series.empty and series["year_frequency"].max() > 0:
-        peak_row = series.sort_values(["relative_share_percent", "year_frequency"], ascending=False).iloc[0]
+    total_documents = (
+        int(series["year_document_count"].sum()) if not series.empty else int(numeric(topic.get("group_size", 0)))
+    )
+    if not series.empty and series["year_document_count"].max() > 0:
+        peak_row = series.sort_values(["relative_share_percent", "year_document_count"], ascending=False).iloc[0]
         peak_text = f"{int(peak_row['year'])} ({peak_row['relative_share_percent']:.3f}%)"
     else:
         peak_text = "No yearly signal"
@@ -199,7 +277,7 @@ def render_topic_metrics(topic: pd.Series, series: pd.DataFrame) -> None:
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Topic documents", f"{total_documents:,}")
-    col2.metric("Peak year", peak_text)
+    col2.metric("Peak prevalence year", peak_text)
     col3.metric("Active years", active_text)
 
 
@@ -253,8 +331,10 @@ def render_evidence(evidence: pd.DataFrame, topic_id: str, series: pd.DataFrame)
     if not available_years:
         st.info("No representative snippet data is available for this topic.")
         return
-    if not series.empty and series["year_frequency"].max() > 0:
-        peak_year = int(series.sort_values("year_frequency", ascending=False).iloc[0]["year"])
+    if not series.empty and series["year_document_count"].max() > 0:
+        peak_year = int(
+            series.sort_values(["relative_share_percent", "year_document_count"], ascending=False).iloc[0]["year"]
+        )
     else:
         peak_year = available_years[-1]
     default_index = available_years.index(peak_year) if peak_year in available_years else len(available_years) - 1
@@ -488,6 +568,229 @@ def render_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
     render_unpaired_section(data, macro_topic)
 
 
+def relation_option(frame: pd.DataFrame, relation_id: str) -> str:
+    row = frame[frame["relation_id"] == relation_id].iloc[0]
+    external_label = clean_text(row.get("external_topic_label", "")) or clean_text(row.get("external_relation_label", ""))
+    corporate_label = clean_text(row.get("corporate_topic_label", ""))
+    source = SOURCE_LABELS.get(clean_text(row.get("external_source", "")), clean_text(row.get("external_source", "")))
+    return (
+        f"{corporate_label} x {source}: {external_label} · "
+        f"{lag_text(row.get('best_lag_spearman'))} · "
+        f"Spearman={decimal_text(row.get('best_spearman_r'), 2)}"
+    )
+
+
+def relation_display_table(frame: pd.DataFrame, level: str) -> pd.DataFrame:
+    columns = [
+        "corporate_topic_label",
+        "external_source",
+        "external_relation_label",
+        "external_topic_count",
+        "corporate_unique_document_count",
+        "external_unique_document_count",
+        "best_lag_spearman",
+        "best_spearman_r",
+        "best_spearman_q_table",
+        "pearson_r_at_best_spearman_lag",
+        "first_active_year_gap",
+        "peak_year_gap",
+        "temporal_relation_label",
+        "ambiguous_best_lag_flag",
+    ]
+    if level == "individual":
+        columns.insert(3, "external_topic_label")
+        columns.extend(["best_cosine_similarity", "direct_pair_count"])
+    available = [column for column in columns if column in frame.columns]
+    table = frame[available].copy()
+    rename = {
+        "corporate_topic_label": "Corporate anchor",
+        "external_source": "External source",
+        "external_relation_label": "External relation",
+        "external_topic_label": "External topic",
+        "external_topic_count": "External topics",
+        "corporate_unique_document_count": "Corporate docs",
+        "external_unique_document_count": "External docs",
+        "best_lag_spearman": "Best lag",
+        "best_spearman_r": "Spearman",
+        "best_spearman_q_table": "Spearman q",
+        "pearson_r_at_best_spearman_lag": "Pearson at lag",
+        "first_active_year_gap": "First-year gap",
+        "peak_year_gap": "Peak-year gap",
+        "temporal_relation_label": "Temporal label",
+        "ambiguous_best_lag_flag": "Ambiguous lag",
+        "best_cosine_similarity": "Cosine",
+        "direct_pair_count": "Direct pairs",
+    }
+    for column in [
+        "best_spearman_r",
+        "best_spearman_q_table",
+        "pearson_r_at_best_spearman_lag",
+        "first_active_year_gap",
+        "peak_year_gap",
+        "best_cosine_similarity",
+    ]:
+        if column in table.columns:
+            table[column] = pd.to_numeric(table[column], errors="coerce").round(3)
+    if "temporal_relation_label" in table.columns:
+        table["temporal_relation_label"] = table["temporal_relation_label"].map(
+            lambda value: RELATION_LABELS.get(clean_text(value), clean_text(value))
+        )
+    if "external_source" in table.columns:
+        table["external_source"] = table["external_source"].map(
+            lambda value: SOURCE_LABELS.get(clean_text(value), clean_text(value))
+        )
+    return table.rename(columns=rename)
+
+
+def render_relation_summary_metrics(row: pd.Series) -> None:
+    cols = st.columns(5)
+    cols[0].metric("Best lag", lag_text(row.get("best_lag_spearman")))
+    cols[1].metric("Spearman", decimal_text(row.get("best_spearman_r")))
+    cols[2].metric("Spearman q", decimal_text(row.get("best_spearman_q_table")))
+    cols[3].metric("Pearson at lag", decimal_text(row.get("pearson_r_at_best_spearman_lag")))
+    cols[4].metric(
+        "Temporal label",
+        RELATION_LABELS.get(clean_text(row.get("temporal_relation_label", "")), "n/a"),
+    )
+
+
+def render_lag_detail_chart(details: pd.DataFrame, relation_id: str) -> None:
+    relation_details = details[details["relation_id"] == relation_id].copy()
+    if relation_details.empty:
+        st.info("No lag-detail rows are available for this relation.")
+        return
+    for column in ["lag", "spearman_r", "pearson_r", "n_overlap_years"]:
+        relation_details[column] = pd.to_numeric(relation_details[column], errors="coerce")
+    plot_frame = relation_details[["lag", "spearman_r", "pearson_r"]].melt(
+        id_vars="lag",
+        value_vars=["spearman_r", "pearson_r"],
+        var_name="Statistic",
+        value_name="Correlation",
+    )
+    plot_frame = plot_frame.dropna(subset=["Correlation"])
+    if plot_frame.empty:
+        st.info("The available series were too sparse or constant for valid lag correlations.")
+        return
+    plot_frame["Statistic"] = plot_frame["Statistic"].map(
+        {"spearman_r": "Spearman", "pearson_r": "Pearson"}
+    )
+    figure = px.line(
+        plot_frame,
+        x="lag",
+        y="Correlation",
+        color="Statistic",
+        markers=True,
+        labels={
+            "lag": "Lag (positive = external source leads corporate)",
+            "Correlation": "Correlation",
+        },
+        title="Lag profile",
+    )
+    figure.add_hline(y=0, line_dash="dash", line_color="#999999")
+    figure.update_xaxes(dtick=1)
+    figure.update_yaxes(range=[-1.05, 1.05])
+    figure.update_layout(height=330, margin=dict(l=10, r=10, t=45, b=10), hovermode="x unified")
+    st.plotly_chart(figure, use_container_width=True)
+
+    detail_table = relation_details[
+        [
+            "lag",
+            "n_overlap_years",
+            "spearman_r",
+            "spearman_p",
+            "spearman_q_table",
+            "pearson_r",
+            "pearson_p",
+            "pearson_q_table",
+            "low_information_flag",
+        ]
+    ].copy()
+    for column in ["spearman_r", "spearman_p", "spearman_q_table", "pearson_r", "pearson_p", "pearson_q_table"]:
+        detail_table[column] = pd.to_numeric(detail_table[column], errors="coerce").round(3)
+    with st.expander("Lag-detail table", expanded=False):
+        st.dataframe(detail_table, hide_index=True, use_container_width=True)
+
+
+def filter_relation_frame(frame: pd.DataFrame, macro_topic: str, key_prefix: str) -> pd.DataFrame:
+    filtered = frame[frame["macro_topic"] == macro_topic].copy()
+    if filtered.empty:
+        return filtered
+    sources = sorted(filtered["external_source"].dropna().astype(str).unique().tolist())
+    selected_sources = st.multiselect(
+        "External source",
+        sources,
+        default=sources,
+        format_func=lambda value: SOURCE_LABELS.get(value, value),
+        key=f"{key_prefix}_sources",
+    )
+    filtered = filtered[filtered["external_source"].isin(selected_sources)]
+    labels = sorted(filtered["temporal_relation_label"].dropna().astype(str).unique().tolist())
+    selected_labels = st.multiselect(
+        "Temporal label",
+        labels,
+        default=labels,
+        format_func=lambda value: RELATION_LABELS.get(value, value),
+        key=f"{key_prefix}_labels",
+    )
+    return filtered[filtered["temporal_relation_label"].isin(selected_labels)].copy()
+
+
+def render_relation_summary_tab(
+    summary: pd.DataFrame,
+    details: pd.DataFrame,
+    macro_topic: str,
+    level: str,
+) -> None:
+    filtered = filter_relation_frame(summary, macro_topic, level)
+    if filtered.empty:
+        st.info("No temporal-relation rows are available for this macro-topic and filter.")
+        return
+    filtered = filtered.sort_values(
+        ["external_source", "corporate_topic_label", "external_relation_label"],
+        kind="mergesort",
+    )
+    st.dataframe(relation_display_table(filtered, level), hide_index=True, use_container_width=True)
+    selected_relation = st.selectbox(
+        "Inspect relation",
+        filtered["relation_id"].tolist(),
+        format_func=lambda relation_id: relation_option(filtered, relation_id),
+        key=f"{level}_relation_select",
+    )
+    row = filtered[filtered["relation_id"] == selected_relation].iloc[0]
+    st.markdown("**Selected temporal relation**")
+    render_relation_summary_metrics(row)
+    st.caption(
+        "Positive lags mean the academic/media series precedes the corporate series. "
+        "The statistic uses annual document prevalence, not raw document counts."
+    )
+    render_lag_detail_chart(details, selected_relation)
+
+
+def render_temporal_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
+    aggregate = data["source_relation_aggregate_summary"]
+    individual = data["source_relation_individual_summary"]
+    aggregate_details = data["source_relation_aggregate_lag_details"]
+    individual_details = data["source_relation_individual_lag_details"]
+
+    aggregate_macro = aggregate[aggregate["macro_topic"] == macro_topic].copy()
+    individual_macro = individual[individual["macro_topic"] == macro_topic].copy()
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Aggregate relations", f"{len(aggregate_macro):,}")
+    col2.metric("Individual topic relations", f"{len(individual_macro):,}")
+    significant = pd.to_numeric(individual_macro.get("best_spearman_q_table", pd.Series(dtype=float)), errors="coerce")
+    col3.metric("Individual q < .05", f"{int((significant < 0.05).sum()):,}")
+    st.caption(
+        "These tables summarize lagged Spearman correlations from -3 to +3 years. "
+        "They are exploratory association diagnostics, not causal estimates."
+    )
+
+    aggregate_tab, individual_tab = st.tabs(["Aggregate source relations", "Individual topic relations"])
+    with aggregate_tab:
+        render_relation_summary_tab(aggregate, aggregate_details, macro_topic, "aggregate")
+    with individual_tab:
+        render_relation_summary_tab(individual, individual_details, macro_topic, "individual")
+
+
 def render_public_safe_note(manifest: dict[str, Any]) -> None:
     public_safe = manifest.get("public_safe", True)
     snippet_chars = manifest.get("snippet_chars", "")
@@ -527,7 +830,7 @@ def main() -> None:
     )
     view_mode = st.sidebar.segmented_control(
         "View",
-        ["Corporate", "Academic", "Media", "Relations"],
+        ["Corporate", "Academic", "Media", "Relations", "Temporal Relations"],
         default="Corporate",
     )
 
@@ -538,8 +841,10 @@ def main() -> None:
         render_topic_mode(data, macro_topic, "academic")
     elif view_mode == "Media":
         render_topic_mode(data, macro_topic, "media")
-    else:
+    elif view_mode == "Relations":
         render_relations_mode(data, macro_topic)
+    else:
+        render_temporal_relations_mode(data, macro_topic)
 
 
 if __name__ == "__main__":

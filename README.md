@@ -44,8 +44,9 @@ The command writes summary CSVs and figures to `outputs/paper_results/`.
 ## Streamlit explorer
 
 The repository also includes a Streamlit app for browsing the paper results by
-macro-topic, source, corporate anchor, and external counterpart. The app uses a
-separate derived data package in `data/app_data/`, which is ignored by Git.
+macro-topic, source, corporate anchor, external counterpart, and lagged
+corporate-external temporal relation. The app uses a separate derived data
+package in `data/app_data/`, which is ignored by Git.
 
 Build the app data from the final paper pipeline workspace:
 
@@ -65,6 +66,8 @@ streamlit run streamlit_app.py
 The default `--public-safe` mode exports only short representative snippets,
 metadata, year, source, chunk IDs, document IDs, and source links when available.
 It does not export full representative-document text to `data/app_data/`.
+Temporal charts use annual document prevalence: topic documents in a given year
+divided by all source-domain documents in that same year.
 
 ## Scripts
 
@@ -75,7 +78,8 @@ It does not export full representative-document text to `data/app_data/`.
 - `scripts/03_render_longitudinal_panels.py`: renders longitudinal panels by
   macro-topic from the final relative-salience series.
 - `scripts/build_streamlit_app_data.py`: builds the public-safe data package for
-  the Streamlit explorer.
+  the Streamlit explorer, including annual-prevalence series and temporal
+  relation tables.
 - `scripts/run_all.py`: runs the three steps above.
 
 ## Notes
