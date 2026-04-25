@@ -38,7 +38,7 @@ STATUS_LABELS = {
     "reviewed_external": "Reviewed external topic",
 }
 SERIES_LABELS = {
-    "corporate_anchor": "Corporate anchor",
+    "corporate": "Corporate anchor",
     "academic_aggregate": "Academic aggregate",
     "media_aggregate": "Media aggregate",
 }
@@ -504,7 +504,7 @@ def render_relation_metrics(panel_series: pd.DataFrame, corporate_topic_id: str)
         if role_frame.empty:
             rows.append((label, 0))
             continue
-        if role == "corporate_anchor":
+        if role == "corporate":
             count = role_frame["corporate_unique_document_count"].replace("", 0).astype(float).max()
         else:
             count = role_frame["series_unique_document_count"].replace("", 0).astype(float).max()
@@ -868,6 +868,21 @@ def render_public_safe_note(manifest: dict[str, Any]) -> None:
         st.sidebar.warning("Local full-text mode is active.")
 
 
+def render_app_guide() -> None:
+    with st.sidebar.expander("Quick guide", expanded=False):
+        st.markdown(
+            """
+            **Macro topic** selects one of the six environmental domains.
+
+            **Corporate, Academic, Media** show reviewed topics for one source. Open a topic to see its yearly prevalence, summaries, phase descriptions, merged-topic composition, top words, and public-safe snippets.
+
+            **Relations** shows each corporate anchor beside its matched academic/media counterparts and the comparative longitudinal panel.
+
+            **Temporal Relations** reports lagged Spearman/Pearson diagnostics from -3 to +3 years. Positive lags mean academic/media precedes corporate.
+            """
+        )
+
+
 def main() -> None:
     st.set_page_config(
         page_title="Sustainability Discourse Explorer",
@@ -891,6 +906,7 @@ def main() -> None:
         st.stop()
 
     render_public_safe_note(data["manifest"])
+    render_app_guide()
     macro_topic = st.sidebar.selectbox(
         "Macro topic",
         MACRO_TOPIC_ORDER,
