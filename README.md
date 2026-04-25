@@ -41,6 +41,31 @@ python scripts/run_all.py \
 
 The command writes summary CSVs and figures to `outputs/paper_results/`.
 
+## Streamlit explorer
+
+The repository also includes a Streamlit app for browsing the paper results by
+macro-topic, source, corporate anchor, and external counterpart. The app uses a
+separate derived data package in `data/app_data/`, which is ignored by Git.
+
+Build the app data from the final paper pipeline workspace:
+
+```bash
+python scripts/build_streamlit_app_data.py \
+  --pipeline-root /path/to/paper_6topic_discourse_pipeline \
+  --output-dir data/app_data \
+  --public-safe
+```
+
+Then run the explorer:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The default `--public-safe` mode exports only short representative snippets,
+metadata, year, source, chunk IDs, document IDs, and source links when available.
+It does not export full representative-document text to `data/app_data/`.
+
 ## Scripts
 
 - `scripts/01_build_macro_results.py`: builds the sample construction,
@@ -49,6 +74,8 @@ The command writes summary CSVs and figures to `outputs/paper_results/`.
   summary, and temporal-summary figures.
 - `scripts/03_render_longitudinal_panels.py`: renders longitudinal panels by
   macro-topic from the final relative-salience series.
+- `scripts/build_streamlit_app_data.py`: builds the public-safe data package for
+  the Streamlit explorer.
 - `scripts/run_all.py`: runs the three steps above.
 
 ## Notes

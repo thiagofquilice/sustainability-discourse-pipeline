@@ -1,2 +1,4 @@
 pandas>=2.0
 matplotlib>=3.7
+plotly>=6.0
+streamlit>=1.55
