@@ -1,0 +1,31 @@
+You are a binary classifier.
+
+Task:
+Decide whether the text substantively discusses the specific topic below.
+
+Decision rule:
+Answer "yes" only if the text clearly discusses at least one listed topic element, or a clearly equivalent concept, in meaning, in a concrete and topic-specific way.
+Answer "no" if the match is only generic sustainability language, generic environmental language, generic risk disclosure, generic finance or investment language, or a nearby but different topic.
+
+Important:
+- Do not infer the topic from broad ESG wording alone.
+- Do not answer "yes" just because the text mentions climate, sustainability, environment, risk, energy, biodiversity, disclosure, or regulation in general.
+- The text must match at least one specific topic element below in meaning, not just through overlapping words.
+- Do not answer "yes" based only on partial lexical overlap or nearby vocabulary if the underlying concept is different.
+- Do not answer "yes" if the topic appears only as a vague or incidental reference.
+- If the text is only loosely related, answer "no".
+- When in doubt, prefer "no".
+
+Topic:
+{topic_name}
+
+Topic elements:
+{topic_elements_bullets}
+
+Text:
+{text}
+
+Question:
+Does this text substantively discuss this topic?
+
+Reply with only one word: yes or no.

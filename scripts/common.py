@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 from pathlib import Path
 from typing import Iterable
 
@@ -18,13 +16,6 @@ MACRO_TOPIC_NAMES = {
 }
 
 STATUS_ORDER = ["aligned", "external_relevant_unpaired", "excluded"]
-PRECEDENCE_ORDER = [
-    "academic_leads_corporate",
-    "media_leads_corporate",
-    "corporate_leads_academic",
-    "corporate_leads_media",
-    "synchronous_or_unclear",
-]
 
 TOPIC_KEY = [
     "macro_topic",
@@ -132,70 +123,6 @@ def included_corporate_by_macro(input_dir: Path) -> pd.DataFrame:
         for topic, name in zip(corporate["macro_topic"], corporate.get("macro_topic_name", ""))
     ]
     return corporate.drop_duplicates(["subgroup", "final_merge_group_id"])
-
-
-def expand_aggregate_pairs(aggregate_pairs: pd.DataFrame) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
-    for row in aggregate_pairs.to_dict(orient="records"):
-        group_ids = json.loads(row["constituent_noncorporate_group_ids_json"])
-        for group_id in group_ids:
-            rows.append(
-                {
-                    "aggregate_pair_id": row["aggregate_pair_id"],
-                    "macro_topic": row["macro_topic"],
-                    "macro_topic_name": macro_name(row["macro_topic"], row.get("macro_topic_name", "")),
-                    "dyad": row["dyad"],
-                    "matched_corporate_group_id": str(row["matched_corporate_group_id"]),
-                    "noncorp_group_id": str(group_id),
-                    "precedence_type_label": row["precedence_type_label"],
-                    "is_stable_leading_pair": bool(row["is_stable_leading_pair"]),
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def precedence_phrase(label: str, compact: bool = False) -> str:
-    if label == "academic_leads_corporate":
-        return "academic-leading" if compact else "Academic discourse appears to lead corporate discourse"
-    if label == "media_leads_corporate":
-        return "media-leading" if compact else "Media discourse appears to lead corporate discourse"
-    if label == "corporate_leads_academic":
-        return "corporate-leading academic" if compact else "Corporate discourse appears to lead academic discourse"
-    if label == "corporate_leads_media":
-        return "corporate-leading media" if compact else "Corporate discourse appears to lead media discourse"
-    return "synchronous or unclear" if compact else "Temporal ordering is mostly synchronous or unclear"
-
-
-def infer_temporal_pattern(counts: dict[str, int], stable_counts: dict[str, int]) -> str:
-    non_zero = {label: count for label, count in counts.items() if count}
-    if not non_zero:
-        return "No robust temporal signal remains after final review."
-
-    dominant_label = max(
-        non_zero,
-        key=lambda label: (non_zero[label], -PRECEDENCE_ORDER.index(label)),
-    )
-    stable_total = sum(stable_counts.values())
-    synchronous_count = counts.get("synchronous_or_unclear", 0)
-
-    if dominant_label == "synchronous_or_unclear":
-        leading_labels = [
-            label
-            for label in PRECEDENCE_ORDER
-            if label != "synchronous_or_unclear" and counts.get(label, 0) > 0
-        ]
-        if not leading_labels:
-            return "Mostly synchronous or inconclusive temporal ordering."
-        lead = precedence_phrase(leading_labels[0], compact=True)
-        if stable_total:
-            suffix = "case" if stable_total == 1 else "cases"
-            return f"Mostly synchronous/co-evolving, with isolated {lead} episodes ({stable_total} stable leading {suffix})."
-        return f"Mostly synchronous/co-evolving, with isolated {lead} episodes."
-
-    phrase = precedence_phrase(dominant_label)
-    if synchronous_count:
-        return f"{phrase}, but with residual synchronous or unclear cases."
-    return f"{phrase}."
 
 
 def complete_status_grid(frame: pd.DataFrame, value_columns: Iterable[str]) -> pd.DataFrame:

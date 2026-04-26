@@ -1,0 +1,85 @@
+You are comparing two cross-source BERTopic micro-topics that were matched as candidate discussions of the same issue.
+
+Task:
+Decide whether they are actually about the same issue, and whether they perform different discourse functions.
+
+Important:
+- Use only the information provided.
+- The pair is already restricted to the same macro-topic.
+- Focus on substantive issue overlap and discourse function, not only on lexical similarity.
+- Treat discourse function as the role each source plays when discussing the issue.
+- Reply with one JSON object only and no surrounding text.
+
+Allowed discourse function labels:
+- technical_research
+- operational_management
+- market_strategy
+- financial_investor
+- policy_governance
+- public_political_debate
+- legal_compliance
+- community_access_justice
+- environmental_risk_stewardship
+- mixed_or_unclear
+
+Return exactly these fields:
+- pair_id
+- macro_topic
+- dyad
+- source_a
+- subgroup_a
+- microtopic_id_a
+- source_b
+- subgroup_b
+- microtopic_id_b
+- same_issue_assessment
+- discourse_function_relation
+- function_label_a
+- function_label_b
+- difference_summary
+- temporal_interpretation_note
+- keep_for_discourse_analysis
+- confidence_note
+
+Metadata:
+pair_id: {pair_id}
+macro_topic: {macro_topic}
+macro_topic_name: {macro_topic_name}
+dyad: {dyad}
+source_a: {source_a}
+subgroup_a: {subgroup_a}
+microtopic_id_a: {microtopic_id_a}
+source_b: {source_b}
+subgroup_b: {subgroup_b}
+microtopic_id_b: {microtopic_id_b}
+cosine_similarity: {cosine_similarity}
+same_year_spearman_note: {same_year_spearman_note}
+timing_gap_note: {timing_gap_note}
+
+Side A narrative:
+topic_label_refined: {topic_label_refined_a}
+overall_summary: {overall_summary_a}
+phase_1_years: {phase_1_years_a}
+phase_1_summary: {phase_1_summary_a}
+phase_2_years: {phase_2_years_a}
+phase_2_summary: {phase_2_summary_a}
+phase_3_years: {phase_3_years_a}
+phase_3_summary: {phase_3_summary_a}
+phase_4_years: {phase_4_years_a}
+phase_4_summary: {phase_4_summary_a}
+evolution_pattern: {evolution_pattern_a}
+evidence_note: {evidence_note_a}
+
+Side B narrative:
+topic_label_refined: {topic_label_refined_b}
+overall_summary: {overall_summary_b}
+phase_1_years: {phase_1_years_b}
+phase_1_summary: {phase_1_summary_b}
+phase_2_years: {phase_2_years_b}
+phase_2_summary: {phase_2_summary_b}
+phase_3_years: {phase_3_years_b}
+phase_3_summary: {phase_3_summary_b}
+phase_4_years: {phase_4_years_b}
+phase_4_summary: {phase_4_summary_b}
+evolution_pattern: {evolution_pattern_b}
+evidence_note: {evidence_note_b}

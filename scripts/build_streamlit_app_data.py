@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build public-safe data files for the Streamlit results explorer."""
+"""Build public-safe data files for the Streamlit reader companion."""
 
 from __future__ import annotations
 
@@ -604,15 +604,17 @@ def build_unpaired_series(pipeline_root: Path) -> pd.DataFrame:
 def build_source_relation_tables(pipeline_root: Path) -> dict[str, pd.DataFrame]:
     relation_root = pipeline_root / "outputs" / "paper_tables" / "corporate_focus_source_topic_relations"
     files = {
-        "source_relation_aggregate_summary": "aggregate_source_relations_summary.csv",
-        "source_relation_individual_summary": "individual_source_relations_summary.csv",
-        "source_relation_aggregate_lag_details": "aggregate_source_relations_lag_details.csv",
-        "source_relation_individual_lag_details": "individual_source_relations_lag_details.csv",
+        "source_relation_aggregate_same_year": "aggregate_spearman_peak_summary_table.csv",
+        "source_relation_individual_same_year": "individual_spearman_peak_summary_table.csv",
     }
     tables: dict[str, pd.DataFrame] = {}
     for key, filename in files.items():
         path = relation_root / filename
-        tables[key] = read_csv(path) if path.exists() else pd.DataFrame()
+        frame = read_csv(path) if path.exists() else pd.DataFrame()
+        if not frame.empty and "relation_id" not in frame.columns:
+            level = "aggregate" if "aggregate" in key else "individual"
+            frame.insert(0, "relation_id", [f"{level}::{index:04d}" for index in range(1, len(frame) + 1)])
+        tables[key] = frame
     return tables
 
 
@@ -715,13 +717,11 @@ def main() -> None:
             "relations": int(len(relations)),
             "panel_series": int(len(panel_series)),
             "unpaired_series": int(len(unpaired_series)),
-            "source_relation_aggregate_summary": int(len(source_relation_tables["source_relation_aggregate_summary"])),
-            "source_relation_individual_summary": int(len(source_relation_tables["source_relation_individual_summary"])),
-            "source_relation_aggregate_lag_details": int(
-                len(source_relation_tables["source_relation_aggregate_lag_details"])
+            "source_relation_aggregate_same_year": int(
+                len(source_relation_tables["source_relation_aggregate_same_year"])
             ),
-            "source_relation_individual_lag_details": int(
-                len(source_relation_tables["source_relation_individual_lag_details"])
+            "source_relation_individual_same_year": int(
+                len(source_relation_tables["source_relation_individual_same_year"])
             ),
             "anchor_interpretations": int(len(interpretations.get("anchors", {}))),
             "unpaired_interpretations": int(len(interpretations.get("unpaired", {}))),

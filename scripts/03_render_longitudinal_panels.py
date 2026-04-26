@@ -36,7 +36,7 @@ YEAR_TICKS = [2000, 2005, 2010, 2015, 2020, 2025]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Render longitudinal relative-salience panels.")
+    parser = argparse.ArgumentParser(description="Render longitudinal annual-prevalence panels.")
     parser.add_argument("--input-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
@@ -48,6 +48,8 @@ def set_theme() -> None:
         {
             "figure.dpi": 160,
             "savefig.dpi": 220,
+            "font.family": "serif",
+            "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
             "font.size": 10,
             "axes.titlesize": 12,
             "axes.labelsize": 11,
@@ -71,8 +73,15 @@ def wrapped(value: str, width: int = 34) -> str:
     return "\n".join(textwrap.wrap(value, width=width, break_long_words=False))
 
 
+def series_value_column(df: pd.DataFrame) -> str:
+    if "annual_document_prevalence" in df.columns:
+        return "annual_document_prevalence"
+    return "relative_share_of_macro_topic_source_docs"
+
+
 def global_y_max(df: pd.DataFrame) -> float:
-    max_value = float(df["relative_share_of_macro_topic_source_docs"].max())
+    value_column = series_value_column(df)
+    max_value = float(pd.to_numeric(df[value_column], errors="coerce").fillna(0).max())
     step = 0.05
     return max(step, math.ceil(max_value / step) * step)
 
@@ -103,6 +112,25 @@ def has_signal(df_series: pd.DataFrame, role: str) -> bool:
     )
 
 
+def document_total(panel: pd.DataFrame, role: str) -> int:
+    series = panel[panel["series_role"] == role]
+    if series.empty:
+        return 0
+    columns = (
+        ["corporate_unique_document_count", "series_unique_document_count", "corporate_topic_size_count"]
+        if role == "corporate"
+        else ["series_unique_document_count", "series_topic_size_count"]
+    )
+    for column in columns:
+        if column in series.columns:
+            values = pd.to_numeric(series[column], errors="coerce").dropna()
+            if not values.empty and values.max() > 0:
+                return int(values.max())
+    if "year_document_count" in series.columns:
+        return int(pd.to_numeric(series["year_document_count"], errors="coerce").fillna(0).sum())
+    return int(pd.to_numeric(series.get("year_frequency", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+
+
 def legend_handles() -> list[Line2D]:
     handles: list[Line2D] = []
     for role in SERIES_ORDER:
@@ -121,6 +149,7 @@ def legend_handles() -> list[Line2D]:
 
 
 def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_max: float) -> list[Path]:
+    value_column = series_value_column(df_macro)
     order = topic_order(df_macro)
     n_topics = len(order)
     ncols = 1 if n_topics == 1 else 2
@@ -142,7 +171,7 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
             style = SERIES_STYLES[role]
             ax.plot(
                 series["year"],
-                series["relative_share_of_macro_topic_source_docs"],
+                series[value_column],
                 color=style["color"],
                 linestyle=style["linestyle"],
                 linewidth=style["linewidth"],
@@ -151,12 +180,28 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
 
         academic_topics = int(panel.loc[panel["series_role"] == "academic_aggregate", "n_contributing_external_topics"].max() or 0)
         media_topics = int(panel.loc[panel["series_role"] == "media_aggregate", "n_contributing_external_topics"].max() or 0)
-        corporate_docs = int(panel.loc[panel["series_role"] == "corporate", "denominator_source_docs_in_macro_topic"].max() or 0)
+        corporate_docs = document_total(panel, "corporate")
+        academic_docs = document_total(panel, "academic_aggregate")
+        media_docs = document_total(panel, "media_aggregate")
+        panel_letter = chr(65 + index)
+        ax.text(
+            -0.08,
+            1.05,
+            panel_letter,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=12,
+            fontweight="bold",
+        )
         ax.set_title(wrapped(label), loc="left", fontweight="bold", pad=14)
         ax.text(
             0.0,
             0.97,
-            f"Academic topics = {academic_topics} | Media topics = {media_topics}\nCorporate denominator = {corporate_docs:,} documents",
+            "Topics: "
+            f"academic = {academic_topics} | media = {media_topics}\n"
+            "Unique topic documents: "
+            f"corporate = {corporate_docs:,} | academic = {academic_docs:,} | media = {media_docs:,}",
             transform=ax.transAxes,
             ha="left",
             va="top",
@@ -177,11 +222,11 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
     fig.legend(handles=legend_handles(), loc="upper center", bbox_to_anchor=(0.5, 0.99), ncol=3, frameon=False)
     fig.suptitle(MACRO_TOPIC_LABELS.get(macro_topic, macro_topic), x=0.06, y=0.995, ha="left", fontsize=16, fontweight="bold")
     fig.text(0.5, 0.03, "Year", ha="center", fontsize=11)
-    fig.text(0.012, 0.5, "Share of source documents in macro topic", va="center", rotation=90, fontsize=11)
+    fig.text(0.012, 0.5, "Annual document prevalence", va="center", rotation=90, fontsize=11)
     fig.tight_layout(rect=[0.03, 0.05, 1.0, 0.93])
 
-    png_path = output_dir / f"{macro_topic}_relative_longitudinal.png"
-    pdf_path = output_dir / f"{macro_topic}_relative_longitudinal.pdf"
+    png_path = output_dir / f"{macro_topic}_annual_document_prevalence.png"
+    pdf_path = output_dir / f"{macro_topic}_annual_document_prevalence.pdf"
     fig.savefig(png_path, bbox_inches="tight")
     fig.savefig(pdf_path, bbox_inches="tight")
     plt.close(fig)

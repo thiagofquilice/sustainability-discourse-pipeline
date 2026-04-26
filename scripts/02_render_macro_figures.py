@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from common import MACRO_TOPIC_ORDER, PRECEDENCE_ORDER, STATUS_ORDER, ensure_dir
+from common import MACRO_TOPIC_ORDER, STATUS_ORDER, ensure_dir
 
 
 STATUS_LABELS = {
@@ -24,14 +24,16 @@ STATUS_COLORS = {
     "external_relevant_unpaired": "#E6A532",
     "excluded": "#C95C54",
 }
-PRECEDENCE_LABELS = {
-    "academic_leads_corporate": "Academic leads",
-    "media_leads_corporate": "Media leads",
-    "corporate_leads_academic": "Corporate leads academic",
-    "corporate_leads_media": "Corporate leads media",
-    "synchronous_or_unclear": "Synchronous/unclear",
+SOURCE_COLORS = {
+    "academic_document_count": "#C07A1E",
+    "media_document_count": "#1F8A70",
+    "corporate_document_count": "#163A70",
 }
-
+SOURCE_LABELS = {
+    "academic_document_count": "Academic",
+    "media_document_count": "Media",
+    "corporate_document_count": "Corporate",
+}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render macro-level paper figures.")
@@ -92,6 +94,44 @@ def render_sample_construction(results_dir: Path) -> Path:
     return output
 
 
+def render_macro_document_counts(results_dir: Path) -> Path:
+    df = pd.read_csv(results_dir / "figure_00_macro_document_counts.csv")
+    df["macro_topic"] = pd.Categorical(df["macro_topic"], MACRO_TOPIC_ORDER, ordered=True)
+    df = df.sort_values("macro_topic")
+
+    fig, ax = plt.subplots(figsize=(10.8, 6.0))
+    left = pd.Series(0, index=df.index, dtype=float)
+    labels = [wrap_macro_label(str(topic)) for topic in df["macro_topic"]]
+    for column in SOURCE_COLORS:
+        values = df[column].fillna(0)
+        ax.barh(
+            labels,
+            values,
+            left=left,
+            color=SOURCE_COLORS[column],
+            edgecolor="white",
+            linewidth=1.0,
+            label=SOURCE_LABELS[column],
+        )
+        left = left + values
+
+    for index, total in enumerate(df["total_unique_document_count"]):
+        ax.text(total + df["total_unique_document_count"].max() * 0.01, index, f"{int(total):,}", va="center", ha="left")
+
+    ax.invert_yaxis()
+    ax.set_title("Final retained documents by source and macro topic")
+    ax.set_xlabel("Unique documents")
+    ax.set_ylabel("")
+    ax.legend(loc="lower right", frameon=False, ncol=3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    output = results_dir / "figure_00_macro_document_counts.png"
+    fig.savefig(output, bbox_inches="tight")
+    plt.close(fig)
+    return output
+
+
 def render_coverage(results_dir: Path) -> Path:
     df = pd.read_csv(results_dir / "figure_01_macro_topic_coverage.csv")
     pivot = (
@@ -132,49 +172,66 @@ def render_coverage(results_dir: Path) -> Path:
     return output
 
 
-def render_temporal_summary(results_dir: Path) -> Path:
-    df = pd.read_csv(results_dir / "figure_02_macro_topic_temporal_summary.csv")
+def render_timing_diagnostics(results_dir: Path) -> Path:
+    df = pd.read_csv(results_dir / "figure_02_source_timing_diagnostics.csv")
     if df.empty:
-        return results_dir / "figure_02_macro_topic_temporal_summary.png"
+        return results_dir / "figure_02_source_timing_diagnostics.png"
 
-    dyad_labels = {
-        "academic__corporate": "Academic vs Corporate",
-        "media__corporate": "Media vs Corporate",
-    }
-    df["combo"] = df["dyad"].map(dyad_labels).fillna(df["dyad"]) + "\n" + df["precedence_type_label"].map(PRECEDENCE_LABELS)
+    df["macro_topic"] = pd.Categorical(df["macro_topic"], MACRO_TOPIC_ORDER, ordered=True)
+    df = df.sort_values(["macro_topic", "relation_level"])
+    levels = ["aggregate", "individual"]
+    colors = {"aggregate": "#5B7DB1", "individual": "#C07A1E"}
+    labels = {"aggregate": "Aggregate source relations", "individual": "Individual topic relations"}
 
-    combos: list[str] = []
-    for dyad in ["academic__corporate", "media__corporate"]:
-        for precedence in PRECEDENCE_ORDER:
-            subset = df[(df["dyad"] == dyad) & (df["precedence_type_label"] == precedence)]
-            if not subset.empty:
-                combos.append(subset["combo"].iloc[0])
+    fig, axes = plt.subplots(ncols=2, figsize=(12.2, 6.2), sharey=True)
+    y_positions = range(len(MACRO_TOPIC_ORDER))
+    for axis_index, (metric, title) in enumerate(
+        [
+            ("relation_count", "Relations tested"),
+            ("spearman_p_lt_10_count", "Same-year Spearman p < .10"),
+        ]
+    ):
+        ax = axes[axis_index]
+        left = pd.Series(0, index=MACRO_TOPIC_ORDER, dtype=float)
+        for level in levels:
+            subset = (
+                df[df["relation_level"] == level]
+                .set_index("macro_topic")[metric]
+                .reindex(MACRO_TOPIC_ORDER)
+                .fillna(0)
+            )
+            ax.barh(
+                [wrap_macro_label(topic) for topic in MACRO_TOPIC_ORDER],
+                subset,
+                left=left,
+                color=colors[level],
+                edgecolor="white",
+                linewidth=1.0,
+                label=labels[level],
+            )
+            for index, value in enumerate(subset):
+                if value:
+                    ax.text(left.iloc[index] + value / 2, index, f"{int(value)}", ha="center", va="center", color="white", fontweight="bold")
+            left = left + subset
+        ax.set_title(title)
+        ax.set_xlabel("Relation count")
+        ax.set_yticks(list(y_positions))
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
-    plot_df = (
-        df.assign(macro_topic=pd.Categorical(df["macro_topic"], MACRO_TOPIC_ORDER, ordered=True))
-        .pivot(index="macro_topic", columns="combo", values="aggregate_pair_count")
-        .fillna(0)
-        .reindex(index=MACRO_TOPIC_ORDER, columns=combos, fill_value=0)
+    axes[0].invert_yaxis()
+    axes[1].legend(loc="lower right", frameon=False)
+    fig.suptitle("Source-relation timing diagnostics", x=0.06, ha="left", fontsize=14, fontweight="bold")
+    fig.text(
+        0.06,
+        0.02,
+        "Diagnostics are descriptive: same-year Spearman indicates co-movement, while onset and peak gaps are reported in the CSV table.",
+        ha="left",
+        fontsize=9,
+        color="#555555",
     )
-
-    fig, ax = plt.subplots(figsize=(12.5, 5.8))
-    image = ax.imshow(plot_df.values, cmap="YlGnBu", aspect="auto", vmin=0)
-    ax.set_xticks(range(len(plot_df.columns)))
-    ax.set_xticklabels(plot_df.columns, rotation=35, ha="right")
-    ax.set_yticks(range(len(plot_df.index)))
-    ax.set_yticklabels([wrap_macro_label(str(topic)) for topic in plot_df.index])
-    ax.set_title("Temporal pattern summary from retained aligned pairs")
-
-    for row_index in range(plot_df.shape[0]):
-        for col_index in range(plot_df.shape[1]):
-            value = int(plot_df.iloc[row_index, col_index])
-            if value:
-                ax.text(col_index, row_index, str(value), ha="center", va="center", fontweight="bold")
-
-    colorbar = fig.colorbar(image, ax=ax, shrink=0.86)
-    colorbar.set_label("Aggregate pair count")
     fig.tight_layout()
-    output = results_dir / "figure_02_macro_topic_temporal_summary.png"
+    output = results_dir / "figure_02_source_timing_diagnostics.png"
     fig.savefig(output, bbox_inches="tight")
     plt.close(fig)
     return output
@@ -232,8 +289,9 @@ def main() -> None:
     set_theme()
     outputs = [
         render_sample_construction(args.results_dir),
+        render_macro_document_counts(args.results_dir),
         render_coverage(args.results_dir),
-        render_temporal_summary(args.results_dir),
+        render_timing_diagnostics(args.results_dir),
         render_macro_summary(args.results_dir),
     ]
     for path in outputs:

@@ -1,0 +1,40 @@
+You are reading yearly evidence for one BERTopic micro-topic within a source-topic subgroup.
+
+Task:
+Summarize what this micro-topic appears to focus on in this specific year.
+
+Important:
+- Use only the evidence provided.
+- Treat the BERTopic topic as a fixed micro-topic whose wording can vary over time.
+- The year-specific words come from BERTopic temporal topic tracking (`topics_over_time`), not from a separately refit dynamic topic model.
+- Be concrete and concise.
+- If the evidence is sparse, say so plainly.
+- Reply with one JSON object only and no surrounding text.
+
+Return exactly these fields:
+- subgroup
+- source
+- assigned_label
+- micro_topic_id
+- year
+- topic_name_original
+- year_focus_primary
+- year_focus_secondary
+- year_keywords_interpreted
+- year_frame_or_angle
+- year_evidence_note
+
+Metadata:
+subgroup: {subgroup}
+source: {source}
+assigned_label: {assigned_label}
+micro_topic_id: {micro_topic_id}
+year: {year}
+topic_name_original: {topic_name_original}
+overall_keywords: {overall_keywords}
+year_specific_words: {year_specific_words}
+available_chunk_count: {available_chunk_count}
+is_sparse_year: {is_sparse_year}
+
+Representative chunks for this year:
+{chunk_block}

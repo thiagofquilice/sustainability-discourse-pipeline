@@ -15,13 +15,15 @@ Place the final derived CSV files in `data/final_artifacts/`:
 corporate_focus_master_review.csv
 corporate_focus_commented_decision_rows.csv
 included_corporate_groups.csv
-aggregate_pair_precedence_classification.csv
 macro_topic_document_counts_final_by_source.csv
 corporate_topic_external_relative_longitudinal.csv
+aggregate_spearman_peak_summary_table.csv
+individual_spearman_peak_summary_table.csv
 ```
 
 These files are ignored by Git. They are expected to come from the final
-analysis workspace used for the paper.
+analysis workspace used for the paper. See `docs/data_package.md` for a
+file-by-file description.
 
 ## Install
 
@@ -41,12 +43,14 @@ python scripts/run_all.py \
 
 The command writes summary CSVs and figures to `outputs/paper_results/`.
 
-## Streamlit explorer
+## Streamlit reader companion
 
-The repository also includes a Streamlit app for browsing the paper results by
-macro-topic, source, corporate anchor, external counterpart, and lagged
-corporate-external temporal relation. The app uses a separate derived data
-package in `data/app_data/`, which is ignored by Git.
+The repository also includes a Streamlit companion app for readers of the
+paper. It is organized as a guided reading path rather than a technical
+dashboard: overview of the study, domain-level patterns, source-specific
+topics, corporate-external relations, and a secondary timing-diagnostics view.
+The app uses a separate derived data package in `data/app_data/`, which is
+ignored by Git.
 
 Build the app data from the final paper pipeline workspace:
 
@@ -57,7 +61,7 @@ python scripts/build_streamlit_app_data.py \
   --public-safe
 ```
 
-Then run the explorer:
+Then run the companion app:
 
 ```bash
 streamlit run streamlit_app.py
@@ -67,20 +71,37 @@ The default `--public-safe` mode exports only short representative snippets,
 metadata, year, source, chunk IDs, document IDs, and source links when available.
 It does not export full representative-document text to `data/app_data/`.
 Temporal charts use annual document prevalence: topic documents in a given year
-divided by all source-domain documents in that same year.
+divided by retained documents from the same source, macro-topic, and year.
 Merged-topic composition tables list only original microtopic IDs, labels,
-counts, and top-word representations.
+counts, and top-word representations. The advanced timing-diagnostics view
+reports the simplified diagnostics used in the paper: same-year Spearman
+correlations, first active-year gaps, and peak-year gaps.
+
+## Method supplement
+
+Paper-facing methodological notes are provided in `docs/method/`. These files
+replace the planned appendix material and document the final workflow in stages:
+
+- corpus construction, taxonomy, embedding assignment, and validation;
+- BERTopic modeling, review, and merge procedures;
+- corporate-centered candidate selection, thresholds, manual recovery, and
+  final review outcomes;
+- longitudinal prevalence and source-relation diagnostics.
+
+Prompt templates used for validation and temporal synthesis are included in
+`docs/method/prompts/`.
 
 ## Scripts
 
 - `scripts/01_build_macro_results.py`: builds the sample construction,
-  macro-topic coverage, macro-topic summary, and temporal-summary CSVs.
-- `scripts/02_render_macro_figures.py`: renders the sample, coverage, macro
-  summary, and temporal-summary figures.
+  macro-topic document counts, macro-topic coverage, macro-topic summary, and
+  simplified source-relation timing CSVs.
+- `scripts/02_render_macro_figures.py`: renders the sample, document-count,
+  coverage, macro-summary, and source-relation timing figures.
 - `scripts/03_render_longitudinal_panels.py`: renders longitudinal panels by
-  macro-topic from the final relative-salience series.
+  macro-topic from the final annual-prevalence series.
 - `scripts/build_streamlit_app_data.py`: builds the public-safe data package for
-  the Streamlit explorer, including annual-prevalence series and temporal
+  the Streamlit companion app, including annual-prevalence series and temporal
   relation tables, and merged-topic composition tables.
 - `scripts/run_all.py`: runs the three steps above.
 

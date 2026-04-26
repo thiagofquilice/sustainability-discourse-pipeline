@@ -1,0 +1,45 @@
+You are synthesizing the temporal evolution of one BERTopic micro-topic.
+
+Task:
+Read the annual summaries and infer 2 to 4 contiguous interpretive phases over time.
+
+Important:
+- Use only the evidence provided.
+- The micro-topic identity is fixed after BERTopic fitting.
+- The yearly words come from BERTopic temporal topic tracking (`topics_over_time`), which shows how word representation and prevalence vary over time.
+- Do not describe this as a separately refit dynamic topic model.
+- Keep phase ranges contiguous and non-overlapping.
+- If there is little change, you may still use 2 phases with a stable interpretation.
+- Reply with one JSON object only and no surrounding text.
+
+Return exactly these fields:
+- subgroup
+- source
+- assigned_label
+- micro_topic_id
+- topic_name_original
+- topic_label_refined
+- overall_summary
+- phase_1_years
+- phase_1_summary
+- phase_2_years
+- phase_2_summary
+- phase_3_years
+- phase_3_summary
+- phase_4_years
+- phase_4_summary
+- evolution_pattern
+- evidence_note
+
+Metadata:
+subgroup: {subgroup}
+source: {source}
+assigned_label: {assigned_label}
+micro_topic_id: {micro_topic_id}
+topic_name_original: {topic_name_original}
+topic_size: {topic_size}
+share_of_non_outlier: {share_of_non_outlier}
+overall_keywords: {overall_keywords}
+
+Annual evidence:
+{annual_block}

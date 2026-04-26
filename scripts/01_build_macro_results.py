@@ -9,12 +9,9 @@ import pandas as pd
 from common import (
     MACRO_TOPIC_ORDER,
     STATUS_ORDER,
-    TOPIC_KEY,
     complete_status_grid,
     ensure_dir,
-    expand_aggregate_pairs,
     included_corporate_by_macro,
-    infer_temporal_pattern,
     load_review_frame,
     macro_name,
     read_csv,
@@ -81,6 +78,12 @@ def build_sample_construction(topics: pd.DataFrame, corporate: pd.DataFrame) -> 
     )
 
 
+def build_macro_document_counts(input_dir: Path) -> pd.DataFrame:
+    counts = read_csv(input_dir, "macro_topic_document_counts_final_by_source.csv")
+    counts["macro_topic"] = pd.Categorical(counts["macro_topic"], MACRO_TOPIC_ORDER, ordered=True)
+    return counts.sort_values("macro_topic").reset_index(drop=True)
+
+
 def build_coverage(topics: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for macro_topic in MACRO_TOPIC_ORDER:
@@ -107,74 +110,60 @@ def build_coverage(topics: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def build_matched_temporal_pairs(review: pd.DataFrame, input_dir: Path) -> pd.DataFrame:
-    aggregate_pairs = read_csv(input_dir, "aggregate_pair_precedence_classification.csv")
-    expanded = expand_aggregate_pairs(aggregate_pairs)
-    aligned = (
-        review.loc[
-            review["paper_status"] == "aligned",
-            [
-                "macro_topic",
-                "final_merge_group_id_noncorporate",
-                "final_merge_group_id_corporate",
-            ],
-        ]
-        .drop_duplicates()
-        .rename(
-            columns={
-                "final_merge_group_id_noncorporate": "noncorp_group_id",
-                "final_merge_group_id_corporate": "matched_corporate_group_id",
-            }
-        )
-    )
-    aligned["noncorp_group_id"] = aligned["noncorp_group_id"].astype(str)
-    aligned["matched_corporate_group_id"] = aligned["matched_corporate_group_id"].astype(str)
-
-    matched = expanded.merge(
-        aligned,
-        on=["macro_topic", "noncorp_group_id", "matched_corporate_group_id"],
-        how="inner",
-    )
-    return matched.drop_duplicates(
-        ["aggregate_pair_id", "macro_topic", "dyad", "precedence_type_label"]
-    )
+def load_timing_tables(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    aggregate = read_csv(input_dir, "aggregate_spearman_peak_summary_table.csv")
+    individual = read_csv(input_dir, "individual_spearman_peak_summary_table.csv")
+    aggregate["relation_level"] = "aggregate"
+    individual["relation_level"] = "individual"
+    return aggregate, individual
 
 
-def build_temporal_summary(matched: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    figure = (
-        matched.groupby(["macro_topic", "macro_topic_name", "dyad", "precedence_type_label"])
-        .size()
-        .reset_index(name="aggregate_pair_count")
-    )
-
+def summarize_timing(frame: pd.DataFrame, relation_level: str) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for macro_topic in MACRO_TOPIC_ORDER:
-        subset = matched[matched["macro_topic"] == macro_topic]
-        counts = subset.groupby("precedence_type_label")["aggregate_pair_id"].nunique().to_dict()
-        stable_counts = (
-            subset[subset["is_stable_leading_pair"]]
-            .groupby("precedence_type_label")["aggregate_pair_id"]
-            .nunique()
-            .to_dict()
+        subset = frame[frame["macro_topic"] == macro_topic].copy()
+        spearman = pd.to_numeric(subset.get("spearman_r"), errors="coerce")
+        spearman_p = pd.to_numeric(subset.get("spearman_p"), errors="coerce")
+        first_gap = pd.to_numeric(subset.get("first_active_year_gap"), errors="coerce")
+        peak_gap = pd.to_numeric(subset.get("peak_year_gap"), errors="coerce")
+        rows.append(
+            {
+                "macro_topic": macro_topic,
+                "macro_topic_name": macro_name(
+                    macro_topic,
+                    subset["macro_topic_name"].iloc[0] if not subset.empty and "macro_topic_name" in subset else "",
+                ),
+                "relation_level": relation_level,
+                "relation_count": int(len(subset)),
+                "valid_spearman_count": int(spearman.notna().sum()),
+                "spearman_positive_count": int((spearman > 0).sum()),
+                "spearman_negative_count": int((spearman < 0).sum()),
+                "spearman_p_lt_10_count": int((spearman_p < 0.10).sum()),
+                "spearman_p_lt_05_count": int((spearman_p < 0.05).sum()),
+                "external_first_count": int((first_gap > 0).sum()),
+                "corporate_first_count": int((first_gap < 0).sum()),
+                "same_first_year_count": int((first_gap == 0).sum()),
+                "external_peak_first_count": int((peak_gap > 0).sum()),
+                "corporate_peak_first_count": int((peak_gap < 0).sum()),
+                "same_peak_year_count": int((peak_gap == 0).sum()),
+                "median_first_active_year_gap": round(float(first_gap.median()), 3) if first_gap.notna().any() else "",
+                "median_peak_year_gap": round(float(peak_gap.median()), 3) if peak_gap.notna().any() else "",
+            }
         )
-        row = {
-            "macro_topic": macro_topic,
-            "macro_topic_name": macro_name(macro_topic),
-            "aligned_aggregate_pair_count": subset["aggregate_pair_id"].nunique(),
-            "stable_leading_pair_count": sum(stable_counts.values()),
-            "dominant_temporal_pattern": infer_temporal_pattern(counts, stable_counts),
-        }
-        for label in [
-            "academic_leads_corporate",
-            "media_leads_corporate",
-            "corporate_leads_academic",
-            "corporate_leads_media",
-            "synchronous_or_unclear",
-        ]:
-            row[f"{label}_count"] = counts.get(label, 0)
-        rows.append(row)
+    return pd.DataFrame(rows)
 
-    return figure.sort_values(["macro_topic", "dyad", "precedence_type_label"]), pd.DataFrame(rows)
+
+def build_timing_summary(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    aggregate, individual = load_timing_tables(input_dir)
+    summary = pd.concat(
+        [
+            summarize_timing(aggregate, "aggregate"),
+            summarize_timing(individual, "individual"),
+        ],
+        ignore_index=True,
+    )
+    aggregate_macro = summary[summary["relation_level"] == "aggregate"].copy()
+    return summary, aggregate_macro
 
 
 def coverage_label(ratio: float, unpaired: int) -> str:
@@ -215,7 +204,7 @@ def build_macro_summary(
     review: pd.DataFrame,
     topics: pd.DataFrame,
     corporate: pd.DataFrame,
-    temporal_macro: pd.DataFrame,
+    aggregate_timing: pd.DataFrame,
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for macro_topic in MACRO_TOPIC_ORDER:
@@ -231,8 +220,8 @@ def build_macro_summary(
         total_count = len(corporate_total)
         matched_count = len(matched_corporate)
         ratio = matched_count / total_count if total_count else 0
-        temporal = temporal_macro[temporal_macro["macro_topic"] == macro_topic]
-        temporal_row = temporal.iloc[0].to_dict() if not temporal.empty else {}
+        timing = aggregate_timing[aggregate_timing["macro_topic"] == macro_topic]
+        timing_row = timing.iloc[0].to_dict() if not timing.empty else {}
         aligned_academic = aligned.loc[aligned["source_noncorporate"] == "academic", "topic_id"].nunique()
         aligned_media = aligned.loc[aligned["source_noncorporate"] == "media", "topic_id"].nunique()
         rows.append(
@@ -249,12 +238,11 @@ def build_macro_summary(
                 "corporate_coverage_ratio": round(ratio, 4),
                 "corporate_coverage_label": coverage_label(ratio, unpaired["topic_id"].nunique()),
                 "dominant_alignment_type": dominant_alignment_type(aligned_academic, aligned_media),
-                "dominant_temporal_pattern": temporal_row.get(
-                    "dominant_temporal_pattern",
-                    "No robust temporal signal remains after final review.",
-                ),
-                "aligned_aggregate_pair_count": int(temporal_row.get("aligned_aggregate_pair_count", 0)),
-                "stable_leading_pair_count": int(temporal_row.get("stable_leading_pair_count", 0)),
+                "aggregate_relation_count": int(timing_row.get("relation_count", 0) or 0),
+                "aggregate_valid_spearman_count": int(timing_row.get("valid_spearman_count", 0) or 0),
+                "aggregate_spearman_p_lt_10_count": int(timing_row.get("spearman_p_lt_10_count", 0) or 0),
+                "aggregate_median_first_active_year_gap": timing_row.get("median_first_active_year_gap", ""),
+                "aggregate_median_peak_year_gap": timing_row.get("median_peak_year_gap", ""),
                 "strategic_implication": strategic_implication(ratio, unpaired["topic_id"].nunique()),
             }
         )
@@ -268,15 +256,15 @@ def main() -> None:
     review = load_review_frame(args.input_dir)
     topics = unique_noncorporate_topics(review)
     corporate = included_corporate_by_macro(args.input_dir)
-    matched = build_matched_temporal_pairs(review, args.input_dir)
-    temporal_figure, temporal_macro = build_temporal_summary(matched)
+    timing_summary, aggregate_timing = build_timing_summary(args.input_dir)
 
     outputs = [
         write_csv(build_sample_construction(topics, corporate), args.output_dir, "table_01_sample_construction.csv"),
+        write_csv(build_macro_document_counts(args.input_dir), args.output_dir, "figure_00_macro_document_counts.csv"),
         write_csv(build_coverage(topics), args.output_dir, "figure_01_macro_topic_coverage.csv"),
-        write_csv(temporal_figure, args.output_dir, "figure_02_macro_topic_temporal_summary.csv"),
+        write_csv(timing_summary, args.output_dir, "figure_02_source_timing_diagnostics.csv"),
         write_csv(
-            build_macro_summary(review, topics, corporate, temporal_macro),
+            build_macro_summary(review, topics, corporate, aggregate_timing),
             args.output_dir,
             "table_02_macro_topic_summary.csv",
         ),
