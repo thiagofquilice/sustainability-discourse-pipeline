@@ -1112,7 +1112,7 @@ def main() -> None:
         st.error("The Streamlit app data files are missing.")
         st.code(
             "python scripts/build_streamlit_app_data.py "
-            "--pipeline-root /path/to/paper_6topic_discourse_pipeline "
+            "--pipeline-root /path/to/final_pipeline_workspace "
             "--output-dir data/app_data --public-safe",
             language="bash",
         )
