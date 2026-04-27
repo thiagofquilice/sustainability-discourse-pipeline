@@ -1,0 +1,30 @@
+{
+  "public_safe": true,
+  "snippet_chars": 360,
+  "outputs": {
+    "topics": "data/app_data/topics.csv",
+    "year_series": "data/app_data/year_series.csv",
+    "topic_merge_components": "data/app_data/topic_merge_components.csv",
+    "year_evidence": "data/app_data/year_evidence.csv",
+    "relations": "data/app_data/relations.csv",
+    "panel_series": "data/app_data/panel_series.csv",
+    "unpaired_series": "data/app_data/unpaired_series.csv",
+    "panel_interpretations": "data/app_data/panel_interpretations.json",
+    "source_relation_aggregate_same_year": "data/app_data/source_relation_aggregate_same_year.csv",
+    "source_relation_individual_same_year": "data/app_data/source_relation_individual_same_year.csv"
+  },
+  "row_counts": {
+    "topics": 241,
+    "year_series": 6266,
+    "topic_merge_components": 604,
+    "year_evidence": 4344,
+    "relations": 150,
+    "panel_series": 2106,
+    "unpaired_series": 520,
+    "source_relation_aggregate_same_year": 21,
+    "source_relation_individual_same_year": 150,
+    "anchor_interpretations": 27,
+    "unpaired_interpretations": 6
+  },
+  "source_workspace": "external_not_included"
+}

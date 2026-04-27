@@ -67,6 +67,21 @@ Then run the companion app:
 streamlit run streamlit_app.py
 ```
 
+### Public deployment
+
+The repository includes a public-safe `data/app_data/` package for Streamlit
+deployment. It contains only derived topic metadata, annual prevalence series,
+short snippets, document IDs, source metadata, and links when available. It does
+not contain raw corpora, embeddings, BERTopic model folders, or full document
+texts.
+
+To publish on Streamlit Community Cloud:
+
+1. Open `https://share.streamlit.io/`.
+2. Choose this GitHub repository.
+3. Set the main file path to `streamlit_app.py`.
+4. Deploy from the `main` branch.
+
 The default `--public-safe` mode exports only short representative snippets,
 metadata, year, source, chunk IDs, document IDs, and source links when available.
 It does not export full representative-document text to `data/app_data/`.

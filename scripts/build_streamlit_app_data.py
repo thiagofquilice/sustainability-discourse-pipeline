@@ -707,7 +707,7 @@ def main() -> None:
     manifest = {
         "public_safe": bool(args.public_safe),
         "snippet_chars": int(args.snippet_chars),
-        "pipeline_root": str(args.pipeline_root),
+        "source_workspace": "external_not_included",
         "outputs": outputs,
         "row_counts": {
             "topics": int(len(topics)),
