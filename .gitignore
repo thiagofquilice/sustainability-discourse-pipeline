@@ -7,6 +7,10 @@ __pycache__/
 
 data/
 outputs/
+paper_pipeline/data/
+paper_pipeline/outputs/
+paper_pipeline/colab/**/inputs/
+paper_pipeline/colab/**/outputs/
 
 *.parquet
 *.f32

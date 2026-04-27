@@ -1,0 +1,76 @@
+topic_id,topic_code,topic_name,topic_definition,topic_elements_bullets,topic_embedding_text,topic_summary_text,sdg_crosswalk,boundary_notes,false_positive_notes,element_count
+1,T1,Clean energy transition,"Deployment and expansion of cleaner energy systems, especially renewable electricity, grid integration, storage, and access to modern clean energy services.","- renewable electricity
+- low-carbon power generation
+- clean energy infrastructure
+- renewable grid integration
+- energy storage systems
+- off-grid renewable electrification
+- community access to electricity
+- access to affordable modern energy services
+- affordable clean energy services
+- community solar systems
+- shared renewable energy infrastructure
+- rural electrification","Renewable electricity, low-carbon power generation, clean energy infrastructure, renewable grid integration, energy storage systems, off-grid renewable electrification, community access to electricity, access to affordable modern energy services, affordable clean energy services, community solar systems, shared renewable energy infrastructure, and rural electrification.","Renewable electricity, low-carbon power generation, clean energy infrastructure, renewable grid integration, energy storage systems, off-grid renewable electrification, community access to electricity, access to affordable modern energy services, affordable clean energy services, community solar systems, shared renewable energy infrastructure, and rural electrification.",SDG07; SDG13,"Exclude generic energy finance, generic oil and gas reserves, generic energy markets, and generic infrastructure spending unless the text clearly concerns cleaner energy transition or energy access.","Common false positives: capital raising for energy firms, oil and gas reserve disclosures, pipeline capacity, generic utility competition, and generic energy policy with no clean-energy or access content.",12
+2,T2,Operational sustainability and circular production,"Internal operational practices that reduce material, water, energy, chemical, or pollution impacts.","- cleaner production
+- waste reduction
+- waste minimization
+- material recycling
+- recycling of materials
+- material recovery
+- wastewater reuse
+- wastewater treatment and reuse
+- circular material use
+- hazardous chemicals management
+- hazardous waste management
+- life cycle assessment
+- industrial waste management
+- secondary recovery projects","Cleaner production, waste reduction, waste minimization, material recycling, recycling of materials, material recovery, wastewater reuse, wastewater treatment and reuse, circular material use, hazardous chemicals management, hazardous waste management, life cycle assessment, industrial waste management, and secondary recovery projects.","Cleaner production, waste reduction, waste minimization, material recycling, recycling of materials, material recovery, wastewater reuse, wastewater treatment and reuse, circular material use, hazardous chemicals management, hazardous waste management, life cycle assessment, industrial waste management, and secondary recovery projects.",SDG12; SDG06; SDG09,"Focus on internal production, process, and operational impact reduction. Exclude generic climate regulation and generic sustainability strategy when no concrete operational practice is described.","Common false positives: generic operational efficiency, reserves and processing language, mining performance, broad ESG reporting, and sustainability claims without concrete operational or process content.",14
+3,T3,"Sustainable products, services and consumption","Lower-impact products, services, materials, and market-facing consumption choices.","- sustainable products
+- sustainable services
+- environmentally preferable products
+- lower-impact products
+- lower-impact services
+- recyclable products
+- biobased products
+- lower-impact materials
+- sustainable consumption
+- greener product design
+- product environmental footprint
+- eco-labeled products","Sustainable products, sustainable services, environmentally preferable products, lower-impact products, lower-impact services, recyclable products, biobased products, lower-impact materials, sustainable consumption, greener product design, product environmental footprint, and eco-labeled products.","Sustainable products, sustainable services, environmentally preferable products, lower-impact products, lower-impact services, recyclable products, biobased products, lower-impact materials, sustainable consumption, greener product design, product environmental footprint, and eco-labeled products.",SDG12; SDG09,"This topic is market-facing. Separate it from T2 by requiring product, service, materials, or consumption content rather than internal production processes alone.","Common false positives: generic sustainability rhetoric, generic green lifestyle messaging without a concrete product or consumption practice, and operational efficiency claims with no product or market-facing dimension.",12
+4,T4,"Climate strategy, carbon governance and disclosure","Targets, disclosure, governance, pricing, and formal strategic positioning around climate and carbon.","- greenhouse gas emissions targets
+- greenhouse gas disclosure
+- carbon disclosure
+- internal carbon pricing
+- internal carbon price
+- carbon markets
+- carbon offsets
+- climate governance
+- climate policy position
+- executive compensation climate metrics
+- decarbonization targets
+- net-zero targets","Greenhouse gas emissions targets, greenhouse gas disclosure, carbon disclosure, internal carbon pricing, internal carbon price, carbon markets, carbon offsets, climate governance, climate policy position, executive compensation climate metrics, decarbonization targets, and net-zero targets.","Greenhouse gas emissions targets, greenhouse gas disclosure, carbon disclosure, internal carbon pricing, internal carbon price, carbon markets, carbon offsets, climate governance, climate policy position, executive compensation climate metrics, decarbonization targets, and net-zero targets.",SDG13; SDG12,"Require explicit targets, disclosure, governance, or carbon-policy mechanisms. Exclude broad climate concern or broad ESG language if no formal climate-management mechanism appears.","Common false positives: generic climate concern, generic transition rhetoric, broad sustainability reputation, or broad investor language without targets, disclosure, pricing, or governance content.",12
+5,T5,"Climate risk, adaptation and resilience","Physical and transition climate risk, climate adaptation, resilience planning, and operational exposure.","- physical climate risk
+- transition climate risk
+- climate adaptation
+- climate resilience planning
+- disaster preparedness
+- extreme weather exposure
+- climate-related operational impacts
+- drought adaptation
+- flood adaptation
+- heat adaptation
+- adaptation to climate change
+- climate vulnerability","Physical climate risk, transition climate risk, climate adaptation, climate resilience planning, disaster preparedness, extreme weather exposure, climate-related operational impacts, drought adaptation, flood adaptation, heat adaptation, adaptation to climate change, and climate vulnerability.","Physical climate risk, transition climate risk, climate adaptation, climate resilience planning, disaster preparedness, extreme weather exposure, climate-related operational impacts, drought adaptation, flood adaptation, heat adaptation, adaptation to climate change, and climate vulnerability.",SDG13; SDG11,"Focus on exposure, preparedness, resilience, and adaptation. Separate this from T4 by excluding pure governance/disclosure language when no concrete risk or adaptation content appears.","Common false positives: generic climate change discussion, broad mitigation language, generic energy transition text, and abstract sustainability risks without concrete climate-risk or adaptation content.",12
+6,T6,"Ecosystems, pollution and environmental stewardship","Protection, restoration, compliance, and pollution-prevention practices tied to biodiversity, land, coast, or ecosystems.","- biodiversity conservation
+- habitat conservation
+- habitat restoration
+- ecological restoration
+- land degradation prevention
+- forest stewardship
+- biodiversity safeguards
+- land-use environmental compliance
+- marine pollution prevention
+- spill prevention
+- discharge reduction
+- leak control
+- coastal ecosystem protection","Biodiversity conservation, habitat conservation, habitat restoration, ecological restoration, land degradation prevention, forest stewardship, biodiversity safeguards, land-use environmental compliance, marine pollution prevention, spill prevention, discharge reduction, leak control, and coastal ecosystem protection.","Biodiversity conservation, habitat conservation, habitat restoration, ecological restoration, land degradation prevention, forest stewardship, biodiversity safeguards, land-use environmental compliance, marine pollution prevention, spill prevention, discharge reduction, leak control, and coastal ecosystem protection.",SDG14; SDG15; SDG12,"This topic combines ecosystem protection and pollution prevention. Keep only texts with concrete biodiversity, habitat, stewardship, compliance, or pollution-prevention substance.","Common false positives: generic sustainability claims, broad natural-capital rhetoric, generic environmental risk language, and marine or land references without stewardship or pollution-prevention substance.",13

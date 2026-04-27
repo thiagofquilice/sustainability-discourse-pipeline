@@ -1,0 +1,42 @@
+{
+  "assignment": {
+    "batch_size": 4096,
+    "output_label_for_no_match": "OUTSIDE_SCOPE",
+    "score_margin": 0.02,
+    "similarity_threshold": 0.65
+  },
+  "bertopic": {
+    "classifier_name": "LogisticRegression",
+    "classifier_params": {
+      "class_weight": "balanced",
+      "max_iter": 3000
+    },
+    "include_outside_scope_in_fit": false,
+    "top_n_words": 10,
+    "vectorizer_max_df": 0.95,
+    "vectorizer_min_df": 1
+  },
+  "embedding": {
+    "dims": 1024,
+    "model_name": "BAAI/bge-large-en-v1.5"
+  },
+  "paths": {
+    "workflow_root": "paper_pipeline",
+    "dataset_dir": "data/external",
+    "dataset_corpus": "data/external/filtered_corpus.parquet",
+    "dataset_embeddings": "data/external/filtered_embeddings.f32",
+    "dataset_embedding_meta": "data/external/filtered_embeddings.meta.json",
+    "dataset_summary": "data/external/subset_summary.json",
+    "stable_label_catalog_csv": "paper_pipeline/catalog/six_topic_discourse_catalog.csv",
+    "stable_label_catalog_json": "paper_pipeline/catalog/six_topic_discourse_catalog.json",
+    "full_output_root": "paper_pipeline/outputs/cosine",
+    "labeled_corpus": "paper_pipeline/outputs/cosine/labeled_corpus.parquet",
+    "positive_labeled_corpus": "paper_pipeline/outputs/cosine/best_only_positive.parquet",
+    "document_topics": "paper_pipeline/outputs/bertopic_supervised/document_topics.parquet",
+    "topic_info_csv": "paper_pipeline/outputs/bertopic_supervised/topic_info.csv",
+    "label_topic_mapping_csv": "paper_pipeline/outputs/bertopic_supervised/label_topic_mapping.csv",
+    "manifest_json": "paper_pipeline/outputs/bertopic_supervised/manifest.json",
+    "model_dir": "paper_pipeline/outputs/bertopic_supervised/bertopic_model",
+    "descriptive_analysis_dir": "paper_pipeline/outputs/bertopic_supervised/descriptive_analysis"
+  }
+}

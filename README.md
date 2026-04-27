@@ -77,6 +77,26 @@ counts, and top-word representations. The advanced timing-diagnostics view
 reports the simplified diagnostics used in the paper: same-year Spearman
 correlations, first active-year gaps, and peak-year gaps.
 
+## Full paper pipeline scripts
+
+The repository also includes the fuller method code used during the paper
+pipeline in `paper_pipeline/`. This is an archival, code-only layer for readers
+who want to inspect or rerun the method from earlier stages if the external
+input data and credentials are available. It includes scripts for:
+
+- upstream corpus chunking, source/industry subset construction, and BGE
+  document-embedding generation;
+- descriptor embedding and cosine assignment;
+- LLM/Gemma validation and temporal synthesis;
+- BERTopic fitting for the source-by-domain microtopic models;
+- topic review, merge, corporate-centered selection, and final paper tables.
+
+The full pipeline layer does not include raw corpora, embeddings, model folders,
+representative-document exports, notebooks, or generated outputs. Its example
+configuration is `paper_pipeline/config/paper_6topic_pipeline_config.example.json`.
+Use `requirements-full.txt` for the heavier optional dependencies needed by
+the full pipeline.
+
 ## Method supplement
 
 Paper-facing methodological notes are provided in `docs/method/`. These files
