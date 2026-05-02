@@ -245,7 +245,15 @@ def apply_style() -> None:
         """
         <style>
         .block-container {padding-top: 1.4rem; padding-bottom: 3rem;}
-        h1, h2, h3 {letter-spacing: 0;}
+        h1, h2, h3 {
+            letter-spacing: 0;
+            color: #102a3a;
+            font-weight: 750;
+        }
+        h4, h5, h6,
+        [data-testid="stMarkdownContainer"] strong {
+            color: #17384a;
+        }
         .paper-hero {
             border: 1px solid #d9e2ec;
             background: linear-gradient(180deg, #f7fbfc 0%, #ffffff 100%);
@@ -280,6 +288,74 @@ def apply_style() -> None:
             border-radius: 8px;
             padding: .7rem .85rem;
             background: #ffffff;
+        }
+        div[data-testid="stMetric"] label,
+        div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
+            color: #26485a;
+            font-weight: 700;
+        }
+        div[data-testid="stSelectbox"] label,
+        div[data-testid="stMultiSelect"] label,
+        div[data-testid="stTextInput"] label,
+        div[data-testid="stRadio"] label,
+        section[data-testid="stSidebar"] label {
+            color: #102a3a !important;
+            font-weight: 700 !important;
+        }
+        div[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+        div[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+        div[data-testid="stTextInput"] input {
+            background: #ffffff !important;
+            border: 1.5px solid #5f7684 !important;
+            color: #102a3a !important;
+            box-shadow: 0 1px 2px rgba(16, 42, 58, .08);
+        }
+        div[data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+        div[data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover,
+        div[data-testid="stTextInput"] input:hover {
+            border-color: #2f4858 !important;
+        }
+        div[data-testid="stSelectbox"] [data-baseweb="select"] span,
+        div[data-testid="stMultiSelect"] [data-baseweb="select"] span,
+        div[data-testid="stSelectbox"] [data-baseweb="select"] svg,
+        div[data-testid="stMultiSelect"] [data-baseweb="select"] svg {
+            color: #102a3a !important;
+            fill: #102a3a !important;
+        }
+        [data-baseweb="popover"] {
+            color: #102a3a !important;
+        }
+        [data-baseweb="popover"] ul,
+        [data-baseweb="popover"] li,
+        [role="listbox"],
+        [role="option"] {
+            background: #ffffff !important;
+            color: #102a3a !important;
+        }
+        [role="option"]:hover,
+        [aria-selected="true"] {
+            background: #e7f0f4 !important;
+            color: #102a3a !important;
+        }
+        div[data-testid="stTabs"] button[role="tab"] {
+            color: #365465 !important;
+            font-weight: 700;
+        }
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            color: #102a3a !important;
+            border-bottom-color: #2f4858 !important;
+        }
+        div[data-testid="stExpander"] details summary,
+        div[data-testid="stExpander"] details summary p {
+            color: #102a3a !important;
+            font-weight: 700;
+        }
+        section[data-testid="stSidebar"] {
+            color: #102a3a;
+        }
+        section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+        section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+            color: #2f4858;
         }
         </style>
         """,
