@@ -67,6 +67,11 @@ Then run the companion app:
 streamlit run streamlit_app.py
 ```
 
+The public app is password-gated. The default deployed password is stored only
+as a PBKDF2 hash in `streamlit_app.py`; it can be rotated by setting
+`SUSTAINABILITY_APP_PASSWORD_HASH` or the Streamlit secret `app_password_hash`
+to another `pbkdf2_sha256$...` value.
+
 ### Public deployment
 
 The repository includes a public-facing `data/app_data/` package for Streamlit

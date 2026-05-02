@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import html
+import hmac
 import json
 import os
 from pathlib import Path
@@ -16,6 +19,11 @@ import streamlit as st
 
 APP_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_DIR = APP_ROOT / "data" / "app_data"
+PASSWORD_HASH_ENV = "SUSTAINABILITY_APP_PASSWORD_HASH"
+DEFAULT_APP_PASSWORD_HASH = (
+    "pbkdf2_sha256$310000$5300d4ecc4177a13185c3e837a23b53e$"
+    "4dGo4pt7P4ptkhoP1Mwb1VfE5at4apmSGhDqBO2x0Xc="
+)
 
 MACRO_TOPIC_ORDER = ["T1", "T2", "T3", "T4", "T5", "T6"]
 MACRO_TOPIC_NAMES = {
@@ -160,6 +168,48 @@ def truthy(value: object, default: bool = False) -> bool:
     if text in {"false", "0", "no", "n"}:
         return False
     return default
+
+
+def configured_password_hash() -> str:
+    env_hash = os.environ.get(PASSWORD_HASH_ENV, "").strip()
+    if env_hash:
+        return env_hash
+    try:
+        secret_hash = st.secrets.get("app_password_hash", "")
+    except Exception:
+        secret_hash = ""
+    return clean_text(secret_hash) or DEFAULT_APP_PASSWORD_HASH
+
+
+def verify_password(password: str, encoded_hash: str) -> bool:
+    if not password or not encoded_hash:
+        return False
+    try:
+        algorithm, rounds_text, salt, digest_text = encoded_hash.split("$", 3)
+        rounds = int(rounds_text)
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    expected = base64.b64decode(digest_text.encode("ascii"))
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), rounds)
+    return hmac.compare_digest(actual, expected)
+
+
+def require_password() -> None:
+    if st.session_state.get("authenticated", False):
+        return
+    st.title("Sustainability Discourse Companion")
+    st.subheader("Access required")
+    with st.form("password_form"):
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Enter")
+    if submitted:
+        if verify_password(password, configured_password_hash()):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        st.error("Invalid password.")
+    st.stop()
 
 
 def macro_option(macro_topic: str) -> str:
@@ -1154,6 +1204,7 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
     apply_style()
+    require_password()
 
     data_dir = Path(os.environ.get("SUSTAINABILITY_APP_DATA", DEFAULT_DATA_DIR))
     data, missing = load_app_data(str(data_dir))
