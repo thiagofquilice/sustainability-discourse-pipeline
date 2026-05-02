@@ -144,6 +144,24 @@ def parse_json(value: object, default: Any) -> Any:
         return default
 
 
+def truthy(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return default
+
+
 def macro_option(macro_topic: str) -> str:
     return f"{macro_topic} - {MACRO_TOPIC_NAMES.get(macro_topic, macro_topic)}"
 
@@ -408,8 +426,18 @@ def domain_summary(data: dict[str, Any]) -> pd.DataFrame:
 def render_public_safe_note(manifest: dict[str, Any]) -> None:
     public_safe = manifest.get("public_safe", True)
     snippet_chars = manifest.get("snippet_chars", "")
+    guardian_word_limit = manifest.get("guardian_word_limit", "")
+    source_policy = manifest.get("source_text_policy", {})
     if public_safe:
-        st.sidebar.success(f"Public-safe snippets: {snippet_chars} characters")
+        if source_policy:
+            st.sidebar.success("Public text policy: source-aware research units")
+            guardian_note = (
+                f"Guardian excerpts are limited to {guardian_word_limit} words and link to the original article "
+                "because Guardian terms govern reuse of Guardian content."
+            )
+            st.sidebar.info(guardian_note)
+        else:
+            st.sidebar.success(f"Public-safe snippets: {snippet_chars} characters")
     else:
         st.sidebar.warning("Local full-text mode is active.")
 
@@ -640,23 +668,44 @@ def render_evidence(evidence: pd.DataFrame, topic_id: str, series: pd.DataFrame,
     if not snippets:
         st.info("No representative snippets were exported for this year.")
         return
-    st.caption("Representative snippets, public-safe")
+    row_public_safe = truthy(row.get("public_safe", True), default=True)
+    if row_public_safe:
+        st.caption("Representative documents and source-limited excerpts")
+    else:
+        st.caption("Representative documents, local full text")
     for index, doc in enumerate(snippets[:3], start=1):
         metadata = [
             f"year: {doc.get('year', selected_year)}",
             f"source: {doc.get('source', '')}",
             f"chunk_id: {doc.get('chunk_id', '')}",
         ]
+        source_date = clean_text(doc.get("source_date", ""))
+        if source_date:
+            metadata.append(f"date: {source_date}")
+        display_word_count = clean_text(doc.get("display_word_count", ""))
+        if display_word_count:
+            metadata.append(f"words shown: {display_word_count}")
         document_id = clean_text(doc.get("source_doc_id", "")) or clean_text(doc.get("document_id", ""))
         if document_id:
             metadata.append(f"doc_id: {document_id}")
         link = clean_text(doc.get("source_link", ""))
+        source = clean_text(doc.get("source", ""))
+        display_policy = clean_text(doc.get("display_policy", ""))
+        if row_public_safe and source == "media":
+            label = "Guardian excerpt"
+        elif row_public_safe and display_policy == "full_research_unit":
+            label = "Research unit"
+        else:
+            label = "Document"
         with st.container(border=True):
-            st.markdown(f"**Snippet {index}**")
+            st.markdown(f"**{label} {index}**")
             st.caption(" | ".join(item for item in metadata if item))
             st.write(clean_text(doc.get("snippet", "")))
+            reference = clean_text(doc.get("reference_note", ""))
+            if reference:
+                st.caption(reference)
             if link:
-                st.link_button("Open source link", link)
+                st.link_button("Open original source", link)
 
 
 def render_topic_detail(

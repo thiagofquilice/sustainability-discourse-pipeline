@@ -69,11 +69,11 @@ streamlit run streamlit_app.py
 
 ### Public deployment
 
-The repository includes a public-safe `data/app_data/` package for Streamlit
-deployment. It contains only derived topic metadata, annual prevalence series,
-short snippets, document IDs, source metadata, and links when available. It does
-not contain raw corpora, embeddings, BERTopic model folders, or full document
-texts.
+The repository includes a public-facing `data/app_data/` package for Streamlit
+deployment. It contains derived topic metadata, annual prevalence series,
+representative research units or source-limited excerpts, document IDs, source
+metadata, dates when available, and links when available. It does not contain
+raw corpora, embeddings, or BERTopic model folders.
 
 To publish on Streamlit Community Cloud:
 
@@ -82,9 +82,13 @@ To publish on Streamlit Community Cloud:
 3. Set the main file path to `streamlit_app.py`.
 4. Deploy from the `main` branch.
 
-The default `--public-safe` mode exports only short representative snippets,
-metadata, year, source, chunk IDs, document IDs, and source links when available.
-It does not export full representative-document text to `data/app_data/`.
+The default `--public-safe` mode uses a source-aware display policy. Academic
+and corporate examples are exported as the full abstract/chunk units used in the
+research, with links or source references when available. Guardian media
+examples are exported as excerpts capped at 300 words, with article date and a
+link to the original Guardian article. The Guardian cap is intentional because
+Guardian terms govern reuse of Guardian content. Use `--local-full-text` only for
+private/local review.
 Temporal charts use annual document prevalence: topic documents in a given year
 divided by retained documents from the same source, macro-topic, and year.
 Merged-topic composition tables list only original microtopic IDs, labels,
@@ -135,9 +139,9 @@ Prompt templates used for validation and temporal synthesis are included in
   coverage, macro-summary, and source-relation timing figures.
 - `scripts/03_render_longitudinal_panels.py`: renders longitudinal panels by
   macro-topic from the final annual-prevalence series.
-- `scripts/build_streamlit_app_data.py`: builds the public-safe data package for
-  the Streamlit companion app, including annual-prevalence series and temporal
-  relation tables, and merged-topic composition tables.
+- `scripts/build_streamlit_app_data.py`: builds the public Streamlit data package,
+  including source-aware representative evidence, annual-prevalence series,
+  temporal relation tables, and merged-topic composition tables.
 - `scripts/run_all.py`: runs the three steps above.
 
 ## Notes

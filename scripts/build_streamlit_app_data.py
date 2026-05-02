@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build public-safe data files for the Streamlit reader companion."""
+"""Build data files for the Streamlit reader companion."""
 
 from __future__ import annotations
 
@@ -31,6 +31,20 @@ YEARS = list(range(2000, 2026))
 DOCUMENT_ID_COLUMNS = ["source_doc_id", "document_id", "doc_id"]
 TEXT_COLUMNS = [f"chunk_text_{idx}" for idx in range(1, 6)]
 CHUNK_ID_COLUMNS = [f"chunk_id_{idx}" for idx in range(1, 6)]
+GUARDIAN_MONTHS = {
+    "jan": "01",
+    "feb": "02",
+    "mar": "03",
+    "apr": "04",
+    "may": "05",
+    "jun": "06",
+    "jul": "07",
+    "aug": "08",
+    "sep": "09",
+    "oct": "10",
+    "nov": "11",
+    "dec": "12",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pipeline-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--snippet-chars", type=int, default=360)
+    parser.add_argument("--guardian-word-limit", type=int, default=300)
     public_group = parser.add_mutually_exclusive_group()
     public_group.add_argument("--public-safe", dest="public_safe", action="store_true", default=True)
     public_group.add_argument("--local-full-text", dest="public_safe", action="store_false")
@@ -122,15 +137,85 @@ def source_link(source: str, source_doc_id: str) -> str:
         return f"https://www.theguardian.com/{source_doc_id}"
     if source == "academic":
         return f"https://www.semanticscholar.org/paper/{source_doc_id}"
+    if source == "corporate":
+        accession = accession_from_source_doc_id(source_doc_id)
+        if accession:
+            return f"https://www.sec.gov/edgar/search/#/q={accession.replace('-', '')}&dateRange=all"
     return ""
 
 
-def snippet_text(text: str, public_safe: bool, limit: int) -> tuple[str, bool]:
+def accession_from_source_doc_id(source_doc_id: str) -> str:
+    match = re.search(r"\d{10}-\d{2}-\d{6}", source_doc_id)
+    return match.group(0) if match else ""
+
+
+def item_from_source_doc_id(source_doc_id: str) -> str:
+    match = re.search(r"-(1A|7)$", source_doc_id)
+    return match.group(1) if match else ""
+
+
+def guardian_date_from_source_doc_id(source_doc_id: str) -> str:
+    match = re.search(r"/(\d{4})/([a-z]{3})/(\d{1,2})/", source_doc_id)
+    if not match:
+        return ""
+    year, month, day = match.groups()
+    month_number = GUARDIAN_MONTHS.get(month.lower())
+    if not month_number:
+        return ""
+    return f"{year}-{month_number}-{int(day):02d}"
+
+
+def source_date(source: str, source_doc_id: str, year: object) -> str:
+    if source == "media":
+        return guardian_date_from_source_doc_id(source_doc_id) or clean_text(year)
+    return clean_text(year)
+
+
+def truncate_words(text: str, limit: int) -> tuple[str, bool, int]:
+    words = text.split()
+    if limit <= 0 or len(words) <= limit:
+        return text, False, len(words)
+    return " ".join(words[:limit]).rstrip(" ,;:") + " ...", True, limit
+
+
+def display_text(
+    text: str,
+    source: str,
+    public_safe: bool,
+    snippet_limit: int,
+    guardian_word_limit: int,
+) -> tuple[str, bool, int, str]:
     text = clean_text(text)
-    if not public_safe or len(text) <= limit:
-        return text, False
-    clipped = text[:limit].rsplit(" ", 1)[0].strip()
-    return f"{clipped} ...", True
+    if not public_safe:
+        return text, False, len(text.split()), "local_full_text"
+    if source == "media":
+        limited, truncated, word_count = truncate_words(text, guardian_word_limit)
+        return limited, truncated, word_count, "guardian_limited_excerpt"
+    if source in {"academic", "corporate"}:
+        return text, False, len(text.split()), "full_research_unit"
+    if len(text) <= snippet_limit:
+        return text, False, len(text.split()), "public_safe_snippet"
+    clipped = text[:snippet_limit].rsplit(" ", 1)[0].strip()
+    return f"{clipped} ...", True, len(clipped.split()), "public_safe_snippet"
+
+
+def reference_note(source: str, source_doc_id: str, date_text: str, guardian_word_limit: int) -> str:
+    link = source_link(source, source_doc_id)
+    if source == "media":
+        return (
+            f"The Guardian, {date_text or 'date unavailable'}. "
+            f"Original article: {link}. "
+            f"Excerpt limited to {guardian_word_limit} words because Guardian terms govern reuse of Guardian content."
+        )
+    if source == "academic":
+        return f"Academic abstract/chunk, {date_text or 'year unavailable'}. Original record: {link}."
+    if source == "corporate":
+        accession = accession_from_source_doc_id(source_doc_id)
+        item = item_from_source_doc_id(source_doc_id)
+        item_text = f", Item {item}" if item else ""
+        accession_text = f" accession {accession}" if accession else ""
+        return f"SEC 10-K source unit{item_text}, {date_text or 'year unavailable'}{accession_text}. Original filing/search: {link}."
+    return f"Source unit, {date_text or 'date unavailable'}. Original: {link}."
 
 
 def load_topic_status(relative_root: Path) -> pd.DataFrame:
@@ -418,16 +503,28 @@ def collect_words(rows: pd.DataFrame, limit: int = 14) -> list[str]:
     return words
 
 
-def docs_from_chunk_records(row: pd.Series, public_safe: bool, snippet_chars: int) -> list[dict[str, object]]:
+def docs_from_chunk_records(
+    row: pd.Series,
+    public_safe: bool,
+    snippet_chars: int,
+    guardian_word_limit: int,
+) -> list[dict[str, object]]:
     records = parse_json(row.get("chunk_records_json", ""), [])
     docs: list[dict[str, object]] = []
     if records:
         for record in records:
             source = clean_text(row.get("source", ""))
             source_doc_id = clean_text(record.get("source_doc_id", ""))
-            text, truncated = snippet_text(str(record.get("text", "")), public_safe, snippet_chars)
+            text, truncated, word_count, display_policy = display_text(
+                str(record.get("text", "")),
+                source,
+                public_safe,
+                snippet_chars,
+                guardian_word_limit,
+            )
             if not text:
                 continue
+            date_text = source_date(source, source_doc_id, record.get("year", row.get("year", "")))
             docs.append(
                 {
                     "year": int(record.get("year", row.get("year", 0))),
@@ -436,9 +533,13 @@ def docs_from_chunk_records(row: pd.Series, public_safe: bool, snippet_chars: in
                     "source_doc_id": source_doc_id,
                     "document_id": source_doc_id,
                     "source_link": source_link(source, source_doc_id),
+                    "source_date": date_text,
                     "micro_topic_probability": record.get("micro_topic_probability", ""),
                     "snippet": text,
                     "is_truncated": bool(truncated),
+                    "display_policy": display_policy,
+                    "display_word_count": int(word_count),
+                    "reference_note": reference_note(source, source_doc_id, date_text, guardian_word_limit),
                 }
             )
     if docs:
@@ -446,31 +547,52 @@ def docs_from_chunk_records(row: pd.Series, public_safe: bool, snippet_chars: in
 
     for idx, text_col in enumerate(TEXT_COLUMNS, start=1):
         raw_text = row.get(text_col, "")
-        text, truncated = snippet_text(str(raw_text), public_safe, snippet_chars)
+        source = clean_text(row.get("source", ""))
+        text, truncated, word_count, display_policy = display_text(
+            str(raw_text),
+            source,
+            public_safe,
+            snippet_chars,
+            guardian_word_limit,
+        )
         if not text:
             continue
         chunk_id = clean_text(row.get(f"chunk_id_{idx}", ""))
+        source_doc_id = ""
+        if source == "media" and chunk_id.startswith("guardian::"):
+            source_doc_id = chunk_id.replace("guardian::", "", 1).split("::", 1)[0]
+        date_text = source_date(source, source_doc_id, row.get("year", ""))
         docs.append(
             {
                 "year": int(row.get("year", 0)),
-                "source": clean_text(row.get("source", "")),
+                "source": source,
                 "chunk_id": chunk_id,
-                "source_doc_id": "",
-                "document_id": "",
-                "source_link": "",
+                "source_doc_id": source_doc_id,
+                "document_id": source_doc_id,
+                "source_link": source_link(source, source_doc_id),
+                "source_date": date_text,
                 "micro_topic_probability": "",
                 "snippet": text,
                 "is_truncated": bool(truncated),
+                "display_policy": display_policy,
+                "display_word_count": int(word_count),
+                "reference_note": reference_note(source, source_doc_id, date_text, guardian_word_limit),
             }
         )
     return docs
 
 
-def collect_docs(rows: pd.DataFrame, public_safe: bool, snippet_chars: int, limit: int = 3) -> list[dict[str, object]]:
+def collect_docs(
+    rows: pd.DataFrame,
+    public_safe: bool,
+    snippet_chars: int,
+    guardian_word_limit: int,
+    limit: int = 3,
+) -> list[dict[str, object]]:
     docs: list[dict[str, object]] = []
     seen: set[tuple[str, str]] = set()
     for _, row in rows.iterrows():
-        for doc in docs_from_chunk_records(row, public_safe, snippet_chars):
+        for doc in docs_from_chunk_records(row, public_safe, snippet_chars, guardian_word_limit):
             key = (str(doc.get("chunk_id", "")), str(doc.get("snippet", ""))[:80])
             if key in seen:
                 continue
@@ -481,7 +603,13 @@ def collect_docs(rows: pd.DataFrame, public_safe: bool, snippet_chars: int, limi
     return docs
 
 
-def build_year_evidence(pipeline_root: Path, topics: pd.DataFrame, public_safe: bool, snippet_chars: int) -> pd.DataFrame:
+def build_year_evidence(
+    pipeline_root: Path,
+    topics: pd.DataFrame,
+    public_safe: bool,
+    snippet_chars: int,
+    guardian_word_limit: int,
+) -> pd.DataFrame:
     evidence_path = pipeline_root / "outputs" / "corporate_focus_stage12_colab_drive_with_overrides" / "data" / "micro_topic_year_evidence.csv"
     selected = load_selected_key(pipeline_root)
     topic_ids = set(topics["topic_id"])
@@ -519,7 +647,7 @@ def build_year_evidence(pipeline_root: Path, topics: pd.DataFrame, public_safe: 
                     "year": int(year),
                     "top_words_json": json.dumps(collect_words(group), ensure_ascii=False),
                     "representative_docs_json": json.dumps(
-                        collect_docs(group, public_safe, snippet_chars),
+                        collect_docs(group, public_safe, snippet_chars, guardian_word_limit),
                         ensure_ascii=False,
                     ),
                     "public_safe": bool(public_safe),
@@ -675,7 +803,13 @@ def main() -> None:
     topics = build_topics(args.pipeline_root)
     year_series = build_year_series(args.pipeline_root, topics)
     topic_merge_components = build_topic_merge_components(args.pipeline_root, topics)
-    year_evidence = build_year_evidence(args.pipeline_root, topics, args.public_safe, args.snippet_chars)
+    year_evidence = build_year_evidence(
+        args.pipeline_root,
+        topics,
+        args.public_safe,
+        args.snippet_chars,
+        args.guardian_word_limit,
+    )
     relations = build_relations(args.pipeline_root)
     panel_series = build_panel_series(args.pipeline_root)
     unpaired_series = build_unpaired_series(args.pipeline_root)
@@ -707,6 +841,13 @@ def main() -> None:
     manifest = {
         "public_safe": bool(args.public_safe),
         "snippet_chars": int(args.snippet_chars),
+        "public_text_policy": "source_aware_research_units",
+        "guardian_word_limit": int(args.guardian_word_limit),
+        "source_text_policy": {
+            "academic": "full abstract/chunk used in the research, with source record link when available",
+            "corporate": "full SEC 10-K chunk used in the research, with accession-based SEC reference",
+            "media": "Guardian excerpt limited by words, with date and original article link",
+        },
         "source_workspace": "external_not_included",
         "outputs": outputs,
         "row_counts": {

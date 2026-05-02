@@ -24,6 +24,9 @@ python scripts/build_streamlit_app_data.py \
   --public-safe
 ```
 
-The `--public-safe` mode exports short snippets and metadata only. It does not
-export full representative-document text, raw corpora, embeddings, or model
-folders.
+The `--public-safe` mode uses the public Streamlit display policy: academic and
+corporate examples are exported as the full abstract/chunk units used in the
+research, while Guardian examples are capped at 300 words and include the
+article date plus a link to the original Guardian article. The package does not
+export raw corpora, embeddings, or model folders. Use `--local-full-text` only
+for private/local review.

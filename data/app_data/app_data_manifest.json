@@ -1,6 +1,14 @@
 {
   "public_safe": true,
   "snippet_chars": 360,
+  "public_text_policy": "source_aware_research_units",
+  "guardian_word_limit": 300,
+  "source_text_policy": {
+    "academic": "full abstract/chunk used in the research, with source record link when available",
+    "corporate": "full SEC 10-K chunk used in the research, with accession-based SEC reference",
+    "media": "Guardian excerpt limited by words, with date and original article link"
+  },
+  "source_workspace": "external_not_included",
   "outputs": {
     "topics": "data/app_data/topics.csv",
     "year_series": "data/app_data/year_series.csv",
@@ -25,6 +33,5 @@
     "source_relation_individual_same_year": 150,
     "anchor_interpretations": 27,
     "unpaired_interpretations": 6
-  },
-  "source_workspace": "external_not_included"
+  }
 }
