@@ -310,6 +310,12 @@ def apply_style() -> None:
             color: #102a3a !important;
             box-shadow: 0 1px 2px rgba(16, 42, 58, .08);
         }
+        div[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+        div[data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within,
+        div[data-testid="stTextInput"] input:focus {
+            border-color: #1f5f7a !important;
+            box-shadow: 0 0 0 3px rgba(47, 72, 88, .18) !important;
+        }
         div[data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
         div[data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover,
         div[data-testid="stTextInput"] input:hover {
@@ -321,6 +327,26 @@ def apply_style() -> None:
         div[data-testid="stMultiSelect"] [data-baseweb="select"] svg {
             color: #102a3a !important;
             fill: #102a3a !important;
+        }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+            background: #2f4858 !important;
+            border: 1px solid #1f3442 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] svg,
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] path {
+            color: #ffffff !important;
+            fill: #ffffff !important;
+        }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] button,
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"] button:hover {
+            color: #ffffff !important;
+            fill: #ffffff !important;
+        }
+        div[data-testid="stMultiSelect"] [data-baseweb="tag"]:hover {
+            background: #203f50 !important;
         }
         [data-baseweb="popover"] {
             color: #102a3a !important;
@@ -335,6 +361,10 @@ def apply_style() -> None:
         [role="option"]:hover,
         [aria-selected="true"] {
             background: #e7f0f4 !important;
+            color: #102a3a !important;
+        }
+        [role="option"] span,
+        [role="option"] div {
             color: #102a3a !important;
         }
         div[data-testid="stTabs"] button[role="tab"] {
@@ -356,6 +386,27 @@ def apply_style() -> None:
         section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
         section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
             color: #2f4858;
+        }
+        div[data-testid="stButton"] button,
+        div[data-testid="stFormSubmitButton"] button,
+        div[data-testid="stLinkButton"] a {
+            background: #2f4858 !important;
+            border-color: #2f4858 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+        div[data-testid="stButton"] button p,
+        div[data-testid="stFormSubmitButton"] button p,
+        div[data-testid="stLinkButton"] a p,
+        div[data-testid="stLinkButton"] a span {
+            color: #ffffff !important;
+        }
+        div[data-testid="stButton"] button:hover,
+        div[data-testid="stFormSubmitButton"] button:hover,
+        div[data-testid="stLinkButton"] a:hover {
+            background: #203f50 !important;
+            border-color: #203f50 !important;
+            color: #ffffff !important;
         }
         </style>
         """,
