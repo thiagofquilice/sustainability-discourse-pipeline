@@ -22,6 +22,32 @@ MACRO_TOPIC_NAMES = {
     "T5": "Climate risk, adaptation and resilience",
     "T6": "Ecosystems, pollution and environmental stewardship",
 }
+TOPIC_TEXT_OVERRIDES = {
+    "corporate_T1::corporate_T1_PG03": {
+        "group_id": "corporate_T1_PG03",
+        "old_label": "HCF Capability and Renewable Profitability Trajectory",
+        "label": "Renewable Project Viability and Market Constraints",
+        "summary": (
+            "The micro-topic tracks corporate framing of renewable and adjacent energy-transition activity "
+            "through commercialization constraints: market adoption, financing, transmission access, "
+            "regulatory and permitting exposure, competition, and supply-chain or customer-demand risks. "
+            "HCF is a prominent early example in the evidence, but the consolidated topic is broader than "
+            "HCF-specific technology."
+        ),
+        "interpretation": (
+            "The renewable project viability panel is corporate-only. It contains 57 corporate documents, "
+            "is active from 2009 to 2025, and peaks in 2011 at 3.73% of corporate T1 documents. The qualitative "
+            "topic description moves from early market-entry challenges toward infrastructure bottlenecks, "
+            "financing, regulatory compliance, permitting, supply-chain vulnerabilities, and customer-demand "
+            "risks in renewable and adjacent transition technologies. HCF is a frequent early example in the "
+            "evidence, but the consolidated topic should be read more broadly as a commercialization and "
+            "viability framing of renewable activity. The absence of retained academic or media counterparts "
+            "suggests that this corporate discourse is not mirroring a broad external issue trajectory; instead, "
+            "it translates transition language into business constraints around project development, market "
+            "entry, and profitability."
+        ),
+    }
+}
 DENOMINATOR_COLUMNS = {
     "academic": "academic_document_count",
     "media": "media_document_count",
@@ -128,6 +154,65 @@ def detect_document_id_column(columns: pd.Index) -> str:
 def macro_topic_name(macro_topic: object, fallback: object = "") -> str:
     fallback_text = clean_text(fallback)
     return fallback_text or MACRO_TOPIC_NAMES.get(str(macro_topic), str(macro_topic))
+
+
+def apply_topic_overrides(topics: pd.DataFrame) -> pd.DataFrame:
+    if topics.empty:
+        return topics
+    updated = topics.copy()
+    for topic_id, override in TOPIC_TEXT_OVERRIDES.items():
+        mask = updated["topic_id"].astype(str) == topic_id
+        if not mask.any():
+            continue
+        updated.loc[mask, "display_label"] = override["label"]
+        if "topic_label_refined" in updated.columns:
+            updated.loc[mask, "topic_label_refined"] = override["label"]
+        if "overall_summary" in updated.columns:
+            updated.loc[mask, "overall_summary"] = override["summary"]
+    return updated
+
+
+def apply_corporate_topic_label_overrides(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    updated = frame.copy()
+    for topic_id, override in TOPIC_TEXT_OVERRIDES.items():
+        group_id = str(override["group_id"])
+        label = str(override["label"])
+        summary = str(override["summary"])
+        old_label = str(override["old_label"])
+
+        if "corporate_topic_id" in updated.columns:
+            mask = updated["corporate_topic_id"].astype(str) == topic_id
+            for column in ["corporate_topic_label", "topic_label_refined_corporate"]:
+                if column in updated.columns:
+                    updated.loc[mask, column] = label
+            if "corporate_topic_summary" in updated.columns:
+                updated.loc[mask, "corporate_topic_summary"] = summary
+
+        for id_column, label_column in [
+            ("corporate_final_merge_group_id", "corporate_topic_label"),
+            ("final_merge_group_id_corporate", "topic_label_refined_corporate"),
+            ("best_matched_corporate_group_id", "best_matched_corporate_label"),
+        ]:
+            if id_column in updated.columns and label_column in updated.columns:
+                mask = updated[id_column].astype(str) == group_id
+                updated.loc[mask, label_column] = label
+
+        for column in updated.columns:
+            if column.endswith("label") or "label" in column:
+                updated[column] = updated[column].replace(old_label, label)
+    return updated
+
+
+def apply_interpretation_overrides(interpretations: dict[str, Any]) -> dict[str, Any]:
+    anchors = dict(interpretations.get("anchors", {}))
+    for override in TOPIC_TEXT_OVERRIDES.values():
+        old_label = str(override["old_label"])
+        label = str(override["label"])
+        anchors.pop(old_label, None)
+        anchors[label] = str(override["interpretation"])
+    return {**interpretations, "anchors": anchors}
 
 
 def source_link(source: str, source_doc_id: str) -> str:
@@ -318,7 +403,8 @@ def build_topics(pipeline_root: Path) -> pd.DataFrame:
     for column in columns:
         if column not in topics.columns:
             topics[column] = ""
-    return topics[columns].sort_values(["macro_topic", "source", "paper_status", "display_label"], kind="mergesort")
+    topics = apply_topic_overrides(topics[columns])
+    return topics.sort_values(["macro_topic", "source", "paper_status", "display_label"], kind="mergesort")
 
 
 def load_selected_key(pipeline_root: Path) -> pd.DataFrame:
@@ -697,7 +783,7 @@ def build_relations(pipeline_root: Path) -> pd.DataFrame:
     for column in columns:
         if column not in relations.columns:
             relations[column] = ""
-    return relations[columns].drop_duplicates()
+    return apply_corporate_topic_label_overrides(relations[columns]).drop_duplicates()
 
 
 def build_panel_series(pipeline_root: Path) -> pd.DataFrame:
@@ -713,7 +799,7 @@ def build_panel_series(pipeline_root: Path) -> pd.DataFrame:
         make_topic_id(row.corporate_subgroup, row.corporate_final_merge_group_id)
         for row in series.itertuples(index=False)
     ]
-    return series
+    return apply_corporate_topic_label_overrides(series)
 
 
 def build_unpaired_series(pipeline_root: Path) -> pd.DataFrame:
@@ -726,7 +812,7 @@ def build_unpaired_series(pipeline_root: Path) -> pd.DataFrame:
     )
     series = read_csv(path)
     series["topic_id"] = [make_topic_id(row.subgroup, row.final_merge_group_id) for row in series.itertuples(index=False)]
-    return series
+    return apply_corporate_topic_label_overrides(series)
 
 
 def build_source_relation_tables(pipeline_root: Path) -> dict[str, pd.DataFrame]:
@@ -742,7 +828,7 @@ def build_source_relation_tables(pipeline_root: Path) -> dict[str, pd.DataFrame]
         if not frame.empty and "relation_id" not in frame.columns:
             level = "aggregate" if "aggregate" in key else "individual"
             frame.insert(0, "relation_id", [f"{level}::{index:04d}" for index in range(1, len(frame) + 1)])
-        tables[key] = frame
+        tables[key] = apply_corporate_topic_label_overrides(frame)
     return tables
 
 
@@ -821,6 +907,7 @@ def main() -> None:
         / "corporate_focus_relative_longitudinal_series"
         / "longitudinal_panel_interpretations.md"
     )
+    interpretations = apply_interpretation_overrides(interpretations)
 
     outputs = {
         "topics": str(write_csv(topics, args.output_dir, "topics.csv")),
