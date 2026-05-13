@@ -625,7 +625,7 @@ def render_app_guide() -> None:
             """
             This is a companion to the paper, not a full data repository.
 
-            Use **Browse topics** for source-specific microtopics. Use **Corporate-external relations** to see how corporate anchors connect to academic and media discourse.
+            Use **Browse topics** for source-specific microtopics. Use **Corporate-external relations** to inspect corporate anchors and their retained academic/media counterparts. Use **Relevant external signals outside the corporate frame** for reviewed external topics that remained relevant but unpaired.
             """
         )
 
@@ -1063,9 +1063,31 @@ def render_anchor_evidence_picker(data: dict[str, Any], anchor: pd.Series, match
     render_evidence(data["year_evidence"], selected, series, key_prefix=f"relation_{selected.replace(':', '_')}")
 
 
-def render_unpaired_section(data: dict[str, Any], macro_topic: str) -> None:
-    st.divider()
-    st.subheader("Relevant external signals outside the corporate frame")
+def render_relation_merge_composition_picker(data: dict[str, Any], anchor: pd.Series, matches: pd.DataFrame) -> None:
+    topics = data["topics"]
+    component_options = [clean_text(anchor["topic_id"])] + matches["external_topic_id"].dropna().astype(str).tolist()
+    component_options = [topic_id for topic_id in dict.fromkeys(component_options) if topic_id]
+    option_rows = topics[topics["topic_id"].isin(component_options)].copy()
+    if option_rows.empty:
+        st.info("Merge-composition data is not available for these relation components.")
+        return
+    st.markdown("**Merged composition for relation components**")
+    selected = st.selectbox(
+        "Relation component",
+        option_rows["topic_id"].tolist(),
+        format_func=lambda topic_id: format_topic_option(
+            option_rows[option_rows["topic_id"] == topic_id].iloc[0],
+            data["year_series"],
+        ),
+        key=f"relation_merge_{clean_text(anchor['topic_id']).replace(':', '_')}",
+    )
+    topic = option_rows[option_rows["topic_id"] == selected].iloc[0]
+    render_merge_composition(data["topic_merge_components"], topic)
+
+
+def render_unpaired_mode(data: dict[str, Any], macro_topic: str) -> None:
+    st.header("Relevant external signals outside the corporate frame")
+    st.caption("Inspect reviewed academic and media topics retained as relevant but not aligned to a corporate anchor.")
     interpretation = data["interpretations"].get("unpaired", {}).get(macro_topic, "")
     if interpretation:
         st.write(interpretation)
@@ -1121,24 +1143,31 @@ def render_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
 
     st.subheader(topic_label(anchor))
     st.caption(f"Corporate anchor · {clean_text(anchor.get('final_merge_group_id', ''))}")
-    if matches.empty:
-        st.warning("This is a corporate-only anchor in the final reviewed sample.")
-    render_relation_metrics(data["panel_series"], selected_anchor)
-    render_relation_chart(data["panel_series"], selected_anchor)
-
-    interpretation = relation_interpretation(data, topic_label(anchor))
-    if interpretation:
-        with st.expander("Longitudinal interpretation", expanded=True):
-            st.write(interpretation)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        render_counterpart_cards(matches, "academic")
-    with col2:
-        render_counterpart_cards(matches, "media")
-    if not matches.empty:
+    overview_tab, temporal_tab, evidence_tab, merge_tab = st.tabs(
+        ["Overview", "Temporal evolution", "Evidence", "Merged composition"]
+    )
+    with overview_tab:
+        if matches.empty:
+            st.warning("This is a corporate-only anchor in the final reviewed sample.")
+        render_relation_metrics(data["panel_series"], selected_anchor)
+        interpretation = relation_interpretation(data, topic_label(anchor))
+        if interpretation:
+            with st.expander("Longitudinal interpretation", expanded=True):
+                st.write(interpretation)
+        col1, col2 = st.columns(2)
+        with col1:
+            render_counterpart_cards(matches, "academic")
+        with col2:
+            render_counterpart_cards(matches, "media")
+    with temporal_tab:
+        st.caption(
+            "Annual prevalence is topic documents in a year divided by all documents from the same source and macro-topic in that year."
+        )
+        render_relation_chart(data["panel_series"], selected_anchor)
+    with evidence_tab:
         render_anchor_evidence_picker(data, anchor, matches)
-    render_unpaired_section(data, macro_topic)
+    with merge_tab:
+        render_relation_merge_composition_picker(data, anchor, matches)
 
 
 def relation_option(frame: pd.DataFrame, relation_id: str) -> str:
@@ -1334,6 +1363,7 @@ def main() -> None:
         [
             "Browse topics",
             "Corporate-external relations",
+            "Relevant external signals outside the corporate frame",
         ],
     )
     macro_topic = st.sidebar.selectbox("Macro-topic", MACRO_TOPIC_ORDER, format_func=macro_option)
@@ -1341,9 +1371,12 @@ def main() -> None:
     if view_mode == "Browse topics":
         st.header(macro_option(macro_topic))
         render_browse_topics(data, macro_topic)
-    else:
+    elif view_mode == "Corporate-external relations":
         st.header(macro_option(macro_topic))
         render_relations_mode(data, macro_topic)
+    else:
+        st.header(macro_option(macro_topic))
+        render_unpaired_mode(data, macro_topic)
 
 
 if __name__ == "__main__":

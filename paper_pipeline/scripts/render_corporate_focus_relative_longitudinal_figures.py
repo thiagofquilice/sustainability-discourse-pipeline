@@ -70,6 +70,14 @@ UNPAIRED_SOURCE_STYLES = {
     },
 }
 YEAR_TICKS = [2000, 2005, 2010, 2015, 2020, 2025]
+PANEL_ORDER_OVERRIDES = {
+    "T1": [
+        "corporate_T1_PG04",
+        "corporate_T1_S004",
+        "corporate_T1_PG03",
+        "corporate_T1_S010",
+    ],
+}
 LEGACY_RELATIVE_COLUMN = "relative_share_of_macro_topic_source_docs"
 ANNUAL_PREVALENCE_COLUMN = "annual_document_prevalence"
 TITLE_Y = 0.995
@@ -261,7 +269,14 @@ def get_macro_topics(df: pd.DataFrame) -> list[str]:
     return [topic for topic in MACRO_TOPIC_ORDER if topic in available]
 
 
-def get_aligned_topic_order(df_macro: pd.DataFrame) -> list[str]:
+def apply_panel_order_override(macro_topic: str, topic_order: list[str]) -> list[str]:
+    override = PANEL_ORDER_OVERRIDES.get(str(macro_topic), [])
+    pinned = [group_id for group_id in override if group_id in topic_order]
+    remainder = [group_id for group_id in topic_order if group_id not in pinned]
+    return pinned + remainder
+
+
+def get_aligned_topic_order(df_macro: pd.DataFrame, macro_topic: str) -> list[str]:
     topic_meta = (
         df_macro.groupby("corporate_final_merge_group_id", as_index=False)
         .agg(
@@ -275,7 +290,8 @@ def get_aligned_topic_order(df_macro: pd.DataFrame) -> list[str]:
             kind="mergesort",
         )
     )
-    return topic_meta["corporate_final_merge_group_id"].astype(str).tolist()
+    default_order = topic_meta["corporate_final_merge_group_id"].astype(str).tolist()
+    return apply_panel_order_override(macro_topic, default_order)
 
 
 def get_unpaired_topic_order(df_macro: pd.DataFrame) -> list[str]:
@@ -364,7 +380,7 @@ def render_macro_topic_figure(
     figure_type: str,
     annotation_note: str,
 ) -> dict[str, object]:
-    topic_order = get_aligned_topic_order(df_macro)
+    topic_order = get_aligned_topic_order(df_macro, macro_topic)
     n_topics = len(topic_order)
     ncols = 1 if n_topics == 1 else 2
     nrows = math.ceil(n_topics / ncols)

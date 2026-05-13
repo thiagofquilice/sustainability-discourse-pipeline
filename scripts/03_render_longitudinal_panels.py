@@ -33,6 +33,14 @@ SERIES_STYLES = {
     "media_aggregate": {"label": "Media aggregate", "color": "#1F8A70", "linestyle": ":", "linewidth": 2.4},
 }
 YEAR_TICKS = [2000, 2005, 2010, 2015, 2020, 2025]
+PANEL_ORDER_OVERRIDES = {
+    "T1": [
+        "corporate_T1_PG04",
+        "corporate_T1_S004",
+        "corporate_T1_PG03",
+        "corporate_T1_S010",
+    ],
+}
 PANEL_TITLE_Y = 1.28
 PANEL_NOTE_Y = 1.045
 PANEL_NOTE_FONT_SIZE = 10.2
@@ -96,6 +104,13 @@ def global_y_max(df: pd.DataFrame) -> float:
     return max(step, math.ceil(max_value / step) * step)
 
 
+def apply_panel_order_override(macro_topic: str, order: list[str]) -> list[str]:
+    override = PANEL_ORDER_OVERRIDES.get(str(macro_topic), [])
+    pinned = [group_id for group_id in override if group_id in order]
+    remainder = [group_id for group_id in order if group_id not in pinned]
+    return pinned + remainder
+
+
 def topic_order(df_macro: pd.DataFrame) -> list[str]:
     meta = (
         df_macro.groupby("corporate_final_merge_group_id", as_index=False)
@@ -109,7 +124,9 @@ def topic_order(df_macro: pd.DataFrame) -> list[str]:
             kind="mergesort",
         )
     )
-    return meta["corporate_final_merge_group_id"].astype(str).tolist()
+    default_order = meta["corporate_final_merge_group_id"].astype(str).tolist()
+    macro_topic = str(df_macro["macro_topic"].iloc[0]) if not df_macro.empty else ""
+    return apply_panel_order_override(macro_topic, default_order)
 
 
 def has_signal(df_series: pd.DataFrame, role: str) -> bool:

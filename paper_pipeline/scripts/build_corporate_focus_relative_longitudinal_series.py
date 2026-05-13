@@ -59,6 +59,16 @@ MACRO_TOPIC_NAME_MAP = {
     "T5": "Climate risk, adaptation and resilience",
     "T6": "Ecosystems, pollution, and environmental stewardship",
 }
+CORPORATE_TOPIC_TEXT_OVERRIDES = {
+    ("corporate_T1", "corporate_T1_PG03"): {
+        "topic_label_refined": "Renewable Project Viability and Market Constraints",
+        "overall_summary": (
+            "The micro-topic tracks corporate framing of renewable and adjacent energy-transition activity "
+            "through commercialization constraints: market adoption, financing, transmission access, "
+            "regulatory and permitting exposure, competition, and supply-chain or customer-demand risks."
+        ),
+    },
+}
 TOPIC_KEY = ["macro_topic", "subgroup_noncorporate", "final_merge_group_id_noncorporate"]
 TOPIC_TABLE_COLUMNS = [
     "macro_topic",
@@ -202,6 +212,35 @@ def macro_topic_name(macro_topic: object, fallback: object = "") -> str:
     return text or MACRO_TOPIC_NAME_MAP.get(str(macro_topic), str(macro_topic))
 
 
+def apply_group_metadata_overrides(groups: pd.DataFrame) -> pd.DataFrame:
+    updated = groups.copy()
+    for (subgroup, group_id), override in CORPORATE_TOPIC_TEXT_OVERRIDES.items():
+        mask = (
+            updated["subgroup"].astype(str).eq(subgroup)
+            & updated["final_merge_group_id"].astype(str).eq(group_id)
+        )
+        for column, value in override.items():
+            if column in updated.columns:
+                updated.loc[mask, column] = value
+    return updated
+
+
+def apply_review_corporate_overrides(review: pd.DataFrame) -> pd.DataFrame:
+    updated = review.copy()
+    for (subgroup, group_id), override in CORPORATE_TOPIC_TEXT_OVERRIDES.items():
+        mask = (
+            updated["subgroup_corporate"].astype(str).eq(subgroup)
+            & updated["final_merge_group_id_corporate"].astype(str).eq(group_id)
+        )
+        label = override.get("topic_label_refined")
+        summary = override.get("overall_summary")
+        if label and "topic_label_refined_corporate" in updated.columns:
+            updated.loc[mask, "topic_label_refined_corporate"] = label
+        if summary and "overall_summary_corporate" in updated.columns:
+            updated.loc[mask, "overall_summary_corporate"] = summary
+    return updated
+
+
 def load_document_maps(
     groups: pd.DataFrame,
 ) -> tuple[
@@ -301,6 +340,7 @@ def load_selected_year_evidence() -> pd.DataFrame:
 def load_group_metadata() -> pd.DataFrame:
     groups = pd.read_csv(ALL_GROUPS_PATH)
     groups["final_merge_group_id"] = groups["final_merge_group_id"].astype(str)
+    groups = apply_group_metadata_overrides(groups)
     groups["macro_topic_name"] = [
         macro_topic_name(topic, name)
         for topic, name in zip(groups["macro_topic"], groups.get("macro_topic_name", ""))
@@ -329,7 +369,7 @@ def load_review_with_status() -> pd.DataFrame:
     ]
     review["final_merge_group_id_noncorporate"] = review["final_merge_group_id_noncorporate"].astype(str)
     review["final_merge_group_id_corporate"] = review["final_merge_group_id_corporate"].astype(str)
-    return review
+    return apply_review_corporate_overrides(review)
 
 
 def load_final_aligned_map(review: pd.DataFrame) -> pd.DataFrame:
