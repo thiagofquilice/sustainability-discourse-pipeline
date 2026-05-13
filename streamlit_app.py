@@ -625,7 +625,7 @@ def render_app_guide() -> None:
             """
             This is a companion to the paper, not a full data repository.
 
-            Use **Browse topics** for source-specific microtopics. Use **Corporate-external relations** to inspect corporate anchors and their retained academic/media counterparts. Use **Relevant external signals outside the corporate frame** for reviewed external topics that remained relevant but unpaired.
+            Use **Browse corporate topics** for corporate anchors. Use **Corporate-external relations** to inspect the academic and media counterparts retained for each corporate anchor. Use **Relevant external signals outside the corporate frame** for reviewed external topics that remained relevant but unpaired.
             """
         )
 
@@ -959,9 +959,15 @@ def render_source_topic_browser(data: dict[str, Any], macro_topic: str, source: 
         )
         filtered = filtered[filtered["paper_status"].isin(selected_statuses)]
     cols = st.columns(3)
-    cols[0].metric("Topics shown", f"{len(filtered):,}")
-    cols[1].metric("Aligned", f"{int((filtered['paper_status'] == 'aligned').sum()):,}")
-    cols[2].metric("Unpaired", f"{int((filtered['paper_status'] == 'external_relevant_unpaired').sum()):,}")
+    if source == "corporate":
+        topic_docs = sum(topic_doc_count(data["year_series"], clean_text(topic_id)) for topic_id in filtered["topic_id"])
+        cols[0].metric("Corporate topics", f"{len(filtered):,}")
+        cols[1].metric("Topic documents", f"{topic_docs:,}")
+        cols[2].metric("Merged microtopics", integer_text(pd.to_numeric(filtered["group_size"], errors="coerce").sum()))
+    else:
+        cols[0].metric("Topics shown", f"{len(filtered):,}")
+        cols[1].metric("Aligned", f"{int((filtered['paper_status'] == 'aligned').sum()):,}")
+        cols[2].metric("Unpaired", f"{int((filtered['paper_status'] == 'external_relevant_unpaired').sum()):,}")
     topic = topic_picker(filtered, data, f"{macro_topic}_{source}")
     if topic is not None:
         render_topic_detail(
@@ -973,16 +979,10 @@ def render_source_topic_browser(data: dict[str, Any], macro_topic: str, source: 
         )
 
 
-def render_browse_topics(data: dict[str, Any], macro_topic: str) -> None:
-    st.header("Browse topics")
-    st.caption("Inspect corporate anchors and reviewed external topics source by source.")
-    corporate_tab, academic_tab, media_tab = st.tabs(["Corporate", "Academic", "Media"])
-    with corporate_tab:
-        render_source_topic_browser(data, macro_topic, "corporate")
-    with academic_tab:
-        render_source_topic_browser(data, macro_topic, "academic")
-    with media_tab:
-        render_source_topic_browser(data, macro_topic, "media")
+def render_browse_corporate_topics(data: dict[str, Any], macro_topic: str) -> None:
+    st.header("Browse corporate topics")
+    st.caption("Inspect corporate anchors and their topic-level evidence, temporal evolution, and merged composition.")
+    render_source_topic_browser(data, macro_topic, "corporate")
 
 
 def render_relation_chart(panel_series: pd.DataFrame, corporate_topic_id: str) -> None:
@@ -1039,6 +1039,15 @@ def render_counterpart_cards(matches: pd.DataFrame, source: str) -> None:
             col1, col2 = st.columns(2)
             col1.metric("Best cosine", decimal_text(row.best_cosine_similarity))
             col2.metric("Direct pairs", integer_text(row.direct_pair_count))
+
+
+def format_counterpart_option(matches: pd.DataFrame, external_topic_id: str) -> str:
+    row = matches[matches["external_topic_id"] == external_topic_id].iloc[0]
+    source = SOURCE_LABELS.get(clean_text(row.get("source_noncorporate", "")), clean_text(row.get("source_noncorporate", "")))
+    label = clean_text(row.get("topic_label_refined_noncorporate", "")) or clean_text(external_topic_id)
+    docs = integer_text(row.get("external_unique_document_count", 0))
+    cosine = decimal_text(row.get("best_cosine_similarity", 0))
+    return f"{source}: {label} · {docs} docs · cosine={cosine}"
 
 
 def render_anchor_evidence_picker(data: dict[str, Any], anchor: pd.Series, matches: pd.DataFrame) -> None:
@@ -1122,7 +1131,7 @@ def render_unpaired_mode(data: dict[str, Any], macro_topic: str) -> None:
 
 def render_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
     st.header("Corporate-external relations")
-    st.caption("Select a corporate anchor to see the academic and media topics retained as counterparts.")
+    st.caption("Select a corporate anchor, then inspect one retained academic or media counterpart.")
     topics = data["topics"]
     corporate = topics[(topics["macro_topic"] == macro_topic) & (topics["source"] == "corporate")].copy()
     if corporate.empty:
@@ -1141,33 +1150,50 @@ def render_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
     anchor = corporate[corporate["topic_id"] == selected_anchor].iloc[0]
     matches = data["relations"][data["relations"]["corporate_topic_id"] == selected_anchor].copy()
 
-    st.subheader(topic_label(anchor))
-    st.caption(f"Corporate anchor · {clean_text(anchor.get('final_merge_group_id', ''))}")
-    overview_tab, temporal_tab, evidence_tab, merge_tab = st.tabs(
-        ["Overview", "Temporal evolution", "Evidence", "Merged composition"]
+    st.caption(f"Corporate anchor context: {topic_label(anchor)} · {clean_text(anchor.get('final_merge_group_id', ''))}")
+    if matches.empty:
+        st.warning("This corporate anchor has no retained academic or media counterpart in the final reviewed sample.")
+        return
+
+    matches = matches.sort_values(["source_noncorporate", "topic_label_refined_noncorporate"], kind="mergesort")
+    source_options = sorted(matches["source_noncorporate"].dropna().astype(str).unique().tolist())
+    selected_sources = st.multiselect(
+        "External source",
+        source_options,
+        default=source_options,
+        format_func=lambda value: SOURCE_LABELS.get(value, value),
+        key=f"{macro_topic}_relation_counterpart_sources_{clean_text(anchor['topic_id']).replace(':', '_')}",
     )
-    with overview_tab:
-        if matches.empty:
-            st.warning("This is a corporate-only anchor in the final reviewed sample.")
-        render_relation_metrics(data["panel_series"], selected_anchor)
-        interpretation = relation_interpretation(data, topic_label(anchor))
-        if interpretation:
-            with st.expander("Longitudinal interpretation", expanded=True):
-                st.write(interpretation)
-        col1, col2 = st.columns(2)
-        with col1:
-            render_counterpart_cards(matches, "academic")
-        with col2:
-            render_counterpart_cards(matches, "media")
-    with temporal_tab:
-        st.caption(
-            "Annual prevalence is topic documents in a year divided by all documents from the same source and macro-topic in that year."
-        )
-        render_relation_chart(data["panel_series"], selected_anchor)
-    with evidence_tab:
-        render_anchor_evidence_picker(data, anchor, matches)
-    with merge_tab:
-        render_relation_merge_composition_picker(data, anchor, matches)
+    matches = matches[matches["source_noncorporate"].isin(selected_sources)].copy()
+    if matches.empty:
+        st.info("No external counterpart matches the selected source filter.")
+        return
+
+    selected_external_id = st.selectbox(
+        "External counterpart",
+        matches["external_topic_id"].tolist(),
+        format_func=lambda topic_id: format_counterpart_option(matches, topic_id),
+        key=f"{macro_topic}_relation_counterpart_{clean_text(anchor['topic_id']).replace(':', '_')}",
+    )
+    relation_row = matches[matches["external_topic_id"] == selected_external_id].iloc[0]
+    external_rows = topics[topics["topic_id"] == selected_external_id].copy()
+    if external_rows.empty:
+        st.error("Selected external counterpart is missing from the topic table.")
+        return
+    external_topic = external_rows.iloc[0]
+
+    cols = st.columns(4)
+    cols[0].metric("External docs", integer_text(relation_row.get("external_unique_document_count", 0)))
+    cols[1].metric("Corporate docs", integer_text(relation_row.get("corporate_unique_document_count", 0)))
+    cols[2].metric("Best cosine", decimal_text(relation_row.get("best_cosine_similarity", 0)))
+    cols[3].metric("Direct pairs", integer_text(relation_row.get("direct_pair_count", 0)))
+    render_topic_detail(
+        external_topic,
+        data["year_series"],
+        data["year_evidence"],
+        data["topic_merge_components"],
+        key_prefix=f"relation_external_{clean_text(selected_external_id).replace(':', '_')}",
+    )
 
 
 def relation_option(frame: pd.DataFrame, relation_id: str) -> str:
@@ -1361,16 +1387,16 @@ def main() -> None:
     view_mode = st.sidebar.radio(
         "Reader path",
         [
-            "Browse topics",
+            "Browse corporate topics",
             "Corporate-external relations",
             "Relevant external signals outside the corporate frame",
         ],
     )
     macro_topic = st.sidebar.selectbox("Macro-topic", MACRO_TOPIC_ORDER, format_func=macro_option)
 
-    if view_mode == "Browse topics":
+    if view_mode == "Browse corporate topics":
         st.header(macro_option(macro_topic))
-        render_browse_topics(data, macro_topic)
+        render_browse_corporate_topics(data, macro_topic)
     elif view_mode == "Corporate-external relations":
         st.header(macro_option(macro_topic))
         render_relations_mode(data, macro_topic)
