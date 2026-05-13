@@ -33,6 +33,16 @@ SERIES_STYLES = {
     "media_aggregate": {"label": "Media aggregate", "color": "#1F8A70", "linestyle": ":", "linewidth": 2.4},
 }
 YEAR_TICKS = [2000, 2005, 2010, 2015, 2020, 2025]
+PANEL_TITLE_Y = 1.28
+PANEL_NOTE_Y = 1.045
+PANEL_NOTE_FONT_SIZE = 10.2
+PANEL_NOTE_BBOX = {
+    "facecolor": "#FFFFFF",
+    "alpha": 1.0,
+    "edgecolor": "#CFCFCF",
+    "linewidth": 0.6,
+    "boxstyle": "round,pad=0.32",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,6 +158,38 @@ def legend_handles() -> list[Line2D]:
     return handles
 
 
+def add_panel_note(ax: plt.Axes, note: str) -> None:
+    ax.text(
+        0.012,
+        PANEL_NOTE_Y,
+        note,
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=PANEL_NOTE_FONT_SIZE,
+        linespacing=1.22,
+        color="#363636",
+        bbox=PANEL_NOTE_BBOX,
+        zorder=6,
+        clip_on=False,
+    )
+
+
+def add_panel_title(ax: plt.Axes, label: str) -> None:
+    ax.text(
+        0.0,
+        PANEL_TITLE_Y,
+        wrapped(label),
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=12,
+        fontweight="bold",
+        color="#222222",
+        clip_on=False,
+    )
+
+
 def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_max: float) -> list[Path]:
     value_column = series_value_column(df_macro)
     order = topic_order(df_macro)
@@ -155,7 +197,7 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
     ncols = 1 if n_topics == 1 else 2
     nrows = math.ceil(n_topics / ncols)
     fig_width = 8.8 if ncols == 1 else 15.2
-    fig_height = 4.2 if n_topics == 1 else 3.9 * nrows + 1.3
+    fig_height = 5.6 if n_topics == 1 else 5.05 * nrows + 1.8
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height), sharex=True, sharey=True)
     axes_list = list(axes.flatten()) if hasattr(axes, "flatten") else [axes]
 
@@ -176,6 +218,7 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
                 linestyle=style["linestyle"],
                 linewidth=style["linewidth"],
                 solid_capstyle="round",
+                zorder=2,
             )
 
         academic_topics = int(panel.loc[panel["series_role"] == "academic_aggregate", "n_contributing_external_topics"].max() or 0)
@@ -186,7 +229,7 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
         panel_letter = chr(65 + index)
         ax.text(
             -0.08,
-            1.05,
+            PANEL_TITLE_Y,
             panel_letter,
             transform=ax.transAxes,
             ha="left",
@@ -194,20 +237,13 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
             fontsize=12,
             fontweight="bold",
         )
-        ax.set_title(wrapped(label), loc="left", fontweight="bold", pad=14)
-        ax.text(
-            0.0,
-            0.97,
+        add_panel_title(ax, label)
+        add_panel_note(
+            ax,
             "Topics: "
             f"academic = {academic_topics} | media = {media_topics}\n"
             "Unique topic documents: "
             f"corporate = {corporate_docs:,} | academic = {academic_docs:,} | media = {media_docs:,}",
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=8.5,
-            linespacing=1.25,
-            color="#5C5C5C",
         )
         ax.set_xlim(2000, 2025)
         ax.set_ylim(0, y_max)
@@ -223,7 +259,7 @@ def render_macro(df_macro: pd.DataFrame, macro_topic: str, output_dir: Path, y_m
     fig.suptitle(MACRO_TOPIC_LABELS.get(macro_topic, macro_topic), x=0.06, y=0.995, ha="left", fontsize=16, fontweight="bold")
     fig.text(0.5, 0.03, "Year", ha="center", fontsize=11)
     fig.text(0.012, 0.5, "Annual document prevalence", va="center", rotation=90, fontsize=11)
-    fig.tight_layout(rect=[0.03, 0.05, 1.0, 0.93])
+    fig.tight_layout(rect=[0.03, 0.05, 1.0, 0.84], h_pad=5.0, w_pad=2.0)
 
     png_path = output_dir / f"{macro_topic}_annual_document_prevalence.png"
     pdf_path = output_dir / f"{macro_topic}_annual_document_prevalence.pdf"

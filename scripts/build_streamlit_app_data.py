@@ -46,7 +46,24 @@ TOPIC_TEXT_OVERRIDES = {
             "it translates transition language into business constraints around project development, market "
             "entry, and profitability."
         ),
-    }
+    },
+    "corporate_T1::corporate_T1_S015": {
+        "group_id": "corporate_T1_S015",
+        "old_label": "Contractual Risk and Negotiation Dynamics in Financing",
+        "label": "Energy Financing, Contract Risk, and Negotiation Dynamics",
+        "summary": (
+            "The micro-topic tracks financing and contract risks in clean-energy and energy-market "
+            "business activity, moving from fixed-price service-contract exposure and clean-energy "
+            "promotional spending to competition, grid or market access, energy purchase agreement "
+            "negotiation, cooperative and utility structures, and structural liabilities."
+        ),
+        "interpretation": (
+            "The energy financing and contract-risk panel is corporate-only. It captures how clean-energy "
+            "and energy-market business activity is translated into disclosure about fixed-price contract "
+            "exposure, promotional spending, competitive pressure, grid or market access, negotiation of "
+            "energy purchase agreements, cooperative and utility structures, and structural liabilities."
+        ),
+    },
 }
 DENOMINATOR_COLUMNS = {
     "academic": "academic_document_count",
@@ -77,6 +94,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pipeline-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--sec-raw-dir", type=Path, default=None)
+    parser.add_argument("--group-exclusion-decisions", type=Path, default=None)
     parser.add_argument("--snippet-chars", type=int, default=360)
     parser.add_argument("--guardian-word-limit", type=int, default=300)
     public_group = parser.add_mutually_exclusive_group()
@@ -105,6 +124,31 @@ def clean_text(value: object) -> str:
     except (TypeError, ValueError):
         pass
     return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def default_group_exclusion_decisions_path(pipeline_root: Path) -> Path:
+    return (
+        pipeline_root
+        / "outputs"
+        / "corporate_external_group_exclusion_review"
+        / "group_exclusion_decisions.csv"
+    )
+
+
+def load_excluded_topics(path: Path | None) -> tuple[set[str], Path | None, pd.DataFrame]:
+    if path is None or not path.exists():
+        return set(), None, pd.DataFrame()
+    decisions = read_csv(path).fillna("")
+    if "topic_id" not in decisions.columns:
+        raise KeyError(f"Expected topic_id in group exclusion decisions: {path}")
+    if "_normalized_review_decision" in decisions.columns:
+        mask = decisions["_normalized_review_decision"].map(clean_text).str.lower().eq("exclude")
+    elif "review_decision" in decisions.columns:
+        mask = decisions["review_decision"].map(clean_text).str.lower().eq("exclude")
+    else:
+        mask = pd.Series([True] * len(decisions), index=decisions.index)
+    topic_ids = set(decisions.loc[mask, "topic_id"].map(clean_text))
+    return {topic_id for topic_id in topic_ids if topic_id}, path, decisions.loc[mask].copy()
 
 
 def parse_json(value: object, default: Any) -> Any:
@@ -215,7 +259,16 @@ def apply_interpretation_overrides(interpretations: dict[str, Any]) -> dict[str,
     return {**interpretations, "anchors": anchors}
 
 
-def source_link(source: str, source_doc_id: str) -> str:
+def sec_record_for_source_doc_id(
+    source_doc_id: str,
+    sec_lookup: dict[str, dict[str, str]] | None = None,
+) -> dict[str, str]:
+    if not sec_lookup:
+        return {}
+    return sec_lookup.get(source_doc_id, {})
+
+
+def source_link(source: str, source_doc_id: str, sec_lookup: dict[str, dict[str, str]] | None = None) -> str:
     if not source_doc_id:
         return ""
     if source == "media":
@@ -223,15 +276,34 @@ def source_link(source: str, source_doc_id: str) -> str:
     if source == "academic":
         return f"https://www.semanticscholar.org/paper/{source_doc_id}"
     if source == "corporate":
-        accession = accession_from_source_doc_id(source_doc_id)
-        if accession:
-            return f"https://www.sec.gov/edgar/search/#/q={accession.replace('-', '')}&dateRange=all"
+        sec_record = sec_record_for_source_doc_id(source_doc_id, sec_lookup)
+        filing_url = clean_text(sec_record.get("filing_url", ""))
+        if filing_url:
+            return filing_url
+        identifier = corporate_identifier_from_source_doc_id(source_doc_id, sec_lookup)
+        if identifier:
+            return f"https://www.sec.gov/edgar/browse/?CIK={identifier}&owner=exclude&action=getcompany"
     return ""
 
 
 def accession_from_source_doc_id(source_doc_id: str) -> str:
     match = re.search(r"\d{10}-\d{2}-\d{6}", source_doc_id)
     return match.group(0) if match else ""
+
+
+def corporate_identifier_from_source_doc_id(
+    source_doc_id: str,
+    sec_lookup: dict[str, dict[str, str]] | None = None,
+) -> str:
+    sec_record = sec_record_for_source_doc_id(source_doc_id, sec_lookup)
+    cik = clean_text(sec_record.get("cik", ""))
+    if cik:
+        return cik.zfill(10) if cik.isdigit() else cik
+    accession = accession_from_source_doc_id(source_doc_id)
+    if not accession:
+        return ""
+    prefix = source_doc_id.split(f"-{accession}", 1)[0].strip("-")
+    return prefix
 
 
 def item_from_source_doc_id(source_doc_id: str) -> str:
@@ -284,8 +356,14 @@ def display_text(
     return f"{clipped} ...", True, len(clipped.split()), "public_safe_snippet"
 
 
-def reference_note(source: str, source_doc_id: str, date_text: str, guardian_word_limit: int) -> str:
-    link = source_link(source, source_doc_id)
+def reference_note(
+    source: str,
+    source_doc_id: str,
+    date_text: str,
+    guardian_word_limit: int,
+    sec_lookup: dict[str, dict[str, str]] | None = None,
+) -> str:
+    link = source_link(source, source_doc_id, sec_lookup)
     if source == "media":
         return (
             f"The Guardian, {date_text or 'date unavailable'}. "
@@ -295,11 +373,13 @@ def reference_note(source: str, source_doc_id: str, date_text: str, guardian_wor
     if source == "academic":
         return f"Academic abstract/chunk, {date_text or 'year unavailable'}. Original record: {link}."
     if source == "corporate":
+        sec_record = sec_record_for_source_doc_id(source_doc_id, sec_lookup)
         accession = accession_from_source_doc_id(source_doc_id)
         item = item_from_source_doc_id(source_doc_id)
         item_text = f", Item {item}" if item else ""
         accession_text = f" accession {accession}" if accession else ""
-        return f"SEC 10-K source unit{item_text}, {date_text or 'year unavailable'}{accession_text}. Original filing/search: {link}."
+        sic_text = f", source SIC {sec_record['sic_primary']}" if sec_record.get("sic_primary") else ""
+        return f"SEC 10-K source unit{item_text}, {date_text or 'year unavailable'}{accession_text}{sic_text}. SEC filing: {link}."
     return f"Source unit, {date_text or 'date unavailable'}. Original: {link}."
 
 
@@ -342,7 +422,7 @@ def load_topic_status(relative_root: Path) -> pd.DataFrame:
     return statuses.drop_duplicates(["subgroup", "final_merge_group_id"], keep="first")
 
 
-def build_topics(pipeline_root: Path) -> pd.DataFrame:
+def build_topics(pipeline_root: Path, excluded_topic_ids: set[str] | None = None) -> pd.DataFrame:
     review_root = pipeline_root / "outputs" / "corporate_focus_review_with_overrides"
     relative_root = pipeline_root / "outputs" / "paper_tables" / "corporate_focus_relative_longitudinal_series"
     groups = read_csv(review_root / "corporate_focus_all_groups_optional.csv")
@@ -365,6 +445,8 @@ def build_topics(pipeline_root: Path) -> pd.DataFrame:
     fallback = topics["topic_name_original"].fillna("").map(clean_text)
     topics.loc[topics["display_label"] == "", "display_label"] = fallback
     topics["display_label"] = topics["display_label"].fillna(topics["topic_id"])
+    if excluded_topic_ids:
+        topics = topics.loc[~topics["topic_id"].isin(excluded_topic_ids)].copy()
 
     columns = [
         "topic_id",
@@ -594,6 +676,7 @@ def docs_from_chunk_records(
     public_safe: bool,
     snippet_chars: int,
     guardian_word_limit: int,
+    sec_lookup: dict[str, dict[str, str]] | None = None,
 ) -> list[dict[str, object]]:
     records = parse_json(row.get("chunk_records_json", ""), [])
     docs: list[dict[str, object]] = []
@@ -611,6 +694,7 @@ def docs_from_chunk_records(
             if not text:
                 continue
             date_text = source_date(source, source_doc_id, record.get("year", row.get("year", "")))
+            link = source_link(source, source_doc_id, sec_lookup)
             docs.append(
                 {
                     "year": int(record.get("year", row.get("year", 0))),
@@ -618,14 +702,14 @@ def docs_from_chunk_records(
                     "chunk_id": clean_text(record.get("chunk_id", "")),
                     "source_doc_id": source_doc_id,
                     "document_id": source_doc_id,
-                    "source_link": source_link(source, source_doc_id),
+                    "source_link": link,
                     "source_date": date_text,
                     "micro_topic_probability": record.get("micro_topic_probability", ""),
                     "snippet": text,
                     "is_truncated": bool(truncated),
                     "display_policy": display_policy,
                     "display_word_count": int(word_count),
-                    "reference_note": reference_note(source, source_doc_id, date_text, guardian_word_limit),
+                    "reference_note": reference_note(source, source_doc_id, date_text, guardian_word_limit, sec_lookup),
                 }
             )
     if docs:
@@ -648,6 +732,7 @@ def docs_from_chunk_records(
         if source == "media" and chunk_id.startswith("guardian::"):
             source_doc_id = chunk_id.replace("guardian::", "", 1).split("::", 1)[0]
         date_text = source_date(source, source_doc_id, row.get("year", ""))
+        link = source_link(source, source_doc_id, sec_lookup)
         docs.append(
             {
                 "year": int(row.get("year", 0)),
@@ -655,14 +740,14 @@ def docs_from_chunk_records(
                 "chunk_id": chunk_id,
                 "source_doc_id": source_doc_id,
                 "document_id": source_doc_id,
-                "source_link": source_link(source, source_doc_id),
+                "source_link": link,
                 "source_date": date_text,
                 "micro_topic_probability": "",
                 "snippet": text,
                 "is_truncated": bool(truncated),
                 "display_policy": display_policy,
                 "display_word_count": int(word_count),
-                "reference_note": reference_note(source, source_doc_id, date_text, guardian_word_limit),
+                "reference_note": reference_note(source, source_doc_id, date_text, guardian_word_limit, sec_lookup),
             }
         )
     return docs
@@ -673,12 +758,13 @@ def collect_docs(
     public_safe: bool,
     snippet_chars: int,
     guardian_word_limit: int,
+    sec_lookup: dict[str, dict[str, str]] | None = None,
     limit: int = 3,
 ) -> list[dict[str, object]]:
     docs: list[dict[str, object]] = []
     seen: set[tuple[str, str]] = set()
     for _, row in rows.iterrows():
-        for doc in docs_from_chunk_records(row, public_safe, snippet_chars, guardian_word_limit):
+        for doc in docs_from_chunk_records(row, public_safe, snippet_chars, guardian_word_limit, sec_lookup):
             key = (str(doc.get("chunk_id", "")), str(doc.get("snippet", ""))[:80])
             if key in seen:
                 continue
@@ -689,12 +775,42 @@ def collect_docs(
     return docs
 
 
+def sec_raw_files(sec_raw_dir: Path | None) -> list[Path]:
+    if sec_raw_dir is None:
+        return []
+    return sorted(sec_raw_dir.glob("10k_items_SIC*_with_amends.jsonl"))
+
+
+def build_sec_lookup(sec_raw_dir: Path | None) -> dict[str, dict[str, str]]:
+    lookup: dict[str, dict[str, str]] = {}
+    for path in sec_raw_files(sec_raw_dir):
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                source_doc_id = clean_text(record.get("id", ""))
+                if not source_doc_id:
+                    continue
+                cik = clean_text(record.get("cik", ""))
+                lookup[source_doc_id] = {
+                    "cik": cik.zfill(10) if cik.isdigit() else cik,
+                    "filing_url": clean_text(record.get("filingUrl", "")),
+                    "sic_primary": clean_text(record.get("sic_primary", "")),
+                    "company": clean_text(record.get("company", "")),
+                    "accession": clean_text(record.get("accession", "")),
+                }
+    return lookup
+
+
 def build_year_evidence(
     pipeline_root: Path,
     topics: pd.DataFrame,
     public_safe: bool,
     snippet_chars: int,
     guardian_word_limit: int,
+    sec_lookup: dict[str, dict[str, str]] | None = None,
 ) -> pd.DataFrame:
     evidence_path = pipeline_root / "outputs" / "corporate_focus_stage12_colab_drive_with_overrides" / "data" / "micro_topic_year_evidence.csv"
     selected = load_selected_key(pipeline_root)
@@ -733,7 +849,7 @@ def build_year_evidence(
                     "year": int(year),
                     "top_words_json": json.dumps(collect_words(group), ensure_ascii=False),
                     "representative_docs_json": json.dumps(
-                        collect_docs(group, public_safe, snippet_chars, guardian_word_limit),
+                        collect_docs(group, public_safe, snippet_chars, guardian_word_limit, sec_lookup),
                         ensure_ascii=False,
                     ),
                     "public_safe": bool(public_safe),
@@ -742,7 +858,7 @@ def build_year_evidence(
     return pd.DataFrame(output_rows).sort_values(["topic_id", "year"], kind="mergesort")
 
 
-def build_relations(pipeline_root: Path) -> pd.DataFrame:
+def build_relations(pipeline_root: Path, excluded_topic_ids: set[str] | None = None) -> pd.DataFrame:
     relative_root = pipeline_root / "outputs" / "paper_tables" / "corporate_focus_relative_longitudinal_series"
     frames: list[pd.DataFrame] = []
     for macro_topic in MACRO_TOPIC_ORDER:
@@ -761,6 +877,11 @@ def build_relations(pipeline_root: Path) -> pd.DataFrame:
         make_topic_id(row.subgroup_noncorporate, row.final_merge_group_id_noncorporate)
         for row in relations.itertuples(index=False)
     ]
+    if excluded_topic_ids:
+        relations = relations.loc[
+            ~relations["corporate_topic_id"].isin(excluded_topic_ids)
+            & ~relations["external_topic_id"].isin(excluded_topic_ids)
+        ].copy()
     columns = [
         "macro_topic",
         "macro_topic_name",
@@ -786,7 +907,7 @@ def build_relations(pipeline_root: Path) -> pd.DataFrame:
     return apply_corporate_topic_label_overrides(relations[columns]).drop_duplicates()
 
 
-def build_panel_series(pipeline_root: Path) -> pd.DataFrame:
+def build_panel_series(pipeline_root: Path, excluded_topic_ids: set[str] | None = None) -> pd.DataFrame:
     path = (
         pipeline_root
         / "outputs"
@@ -799,10 +920,12 @@ def build_panel_series(pipeline_root: Path) -> pd.DataFrame:
         make_topic_id(row.corporate_subgroup, row.corporate_final_merge_group_id)
         for row in series.itertuples(index=False)
     ]
+    if excluded_topic_ids:
+        series = series.loc[~series["corporate_topic_id"].isin(excluded_topic_ids)].copy()
     return apply_corporate_topic_label_overrides(series)
 
 
-def build_unpaired_series(pipeline_root: Path) -> pd.DataFrame:
+def build_unpaired_series(pipeline_root: Path, excluded_topic_ids: set[str] | None = None) -> pd.DataFrame:
     path = (
         pipeline_root
         / "outputs"
@@ -812,10 +935,16 @@ def build_unpaired_series(pipeline_root: Path) -> pd.DataFrame:
     )
     series = read_csv(path)
     series["topic_id"] = [make_topic_id(row.subgroup, row.final_merge_group_id) for row in series.itertuples(index=False)]
+    if excluded_topic_ids:
+        series = series.loc[~series["topic_id"].isin(excluded_topic_ids)].copy()
     return apply_corporate_topic_label_overrides(series)
 
 
-def build_source_relation_tables(pipeline_root: Path) -> dict[str, pd.DataFrame]:
+def build_source_relation_tables(
+    pipeline_root: Path,
+    excluded_topic_ids: set[str] | None = None,
+    excluded_topic_labels: set[str] | None = None,
+) -> dict[str, pd.DataFrame]:
     relation_root = pipeline_root / "outputs" / "paper_tables" / "corporate_focus_source_topic_relations"
     files = {
         "source_relation_aggregate_same_year": "aggregate_spearman_peak_summary_table.csv",
@@ -828,6 +957,12 @@ def build_source_relation_tables(pipeline_root: Path) -> dict[str, pd.DataFrame]
         if not frame.empty and "relation_id" not in frame.columns:
             level = "aggregate" if "aggregate" in key else "individual"
             frame.insert(0, "relation_id", [f"{level}::{index:04d}" for index in range(1, len(frame) + 1)])
+        if not frame.empty and excluded_topic_ids:
+            excluded_group_ids = {topic_id.split("::", 1)[1] for topic_id in excluded_topic_ids if "::" in topic_id}
+            if "external_final_merge_group_id" in frame.columns:
+                frame = frame.loc[~frame["external_final_merge_group_id"].astype(str).isin(excluded_group_ids)].copy()
+        if not frame.empty and excluded_topic_labels and "corporate_topic_label" in frame.columns:
+            frame = frame.loc[~frame["corporate_topic_label"].map(clean_text).isin(excluded_topic_labels)].copy()
         tables[key] = apply_corporate_topic_label_overrides(frame)
     return tables
 
@@ -886,20 +1021,30 @@ def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    topics = build_topics(args.pipeline_root)
+    exclusion_decisions_path = args.group_exclusion_decisions or default_group_exclusion_decisions_path(args.pipeline_root)
+    excluded_topic_ids, resolved_exclusion_decisions_path, excluded_topics = load_excluded_topics(exclusion_decisions_path)
+    excluded_topic_labels = set(excluded_topics.get("topic_label", pd.Series(dtype=str)).map(clean_text)) if not excluded_topics.empty else set()
+
+    topics = build_topics(args.pipeline_root, excluded_topic_ids)
     year_series = build_year_series(args.pipeline_root, topics)
     topic_merge_components = build_topic_merge_components(args.pipeline_root, topics)
+    sec_lookup = build_sec_lookup(args.sec_raw_dir)
     year_evidence = build_year_evidence(
         args.pipeline_root,
         topics,
         args.public_safe,
         args.snippet_chars,
         args.guardian_word_limit,
+        sec_lookup,
     )
-    relations = build_relations(args.pipeline_root)
-    panel_series = build_panel_series(args.pipeline_root)
-    unpaired_series = build_unpaired_series(args.pipeline_root)
-    source_relation_tables = build_source_relation_tables(args.pipeline_root)
+    relations = build_relations(args.pipeline_root, excluded_topic_ids)
+    panel_series = build_panel_series(args.pipeline_root, excluded_topic_ids)
+    unpaired_series = build_unpaired_series(args.pipeline_root, excluded_topic_ids)
+    source_relation_tables = build_source_relation_tables(
+        args.pipeline_root,
+        excluded_topic_ids,
+        excluded_topic_labels,
+    )
     interpretations = parse_interpretations(
         args.pipeline_root
         / "outputs"
@@ -932,10 +1077,14 @@ def main() -> None:
         "guardian_word_limit": int(args.guardian_word_limit),
         "source_text_policy": {
             "academic": "full abstract/chunk used in the research, with source record link when available",
-            "corporate": "full SEC 10-K chunk used in the research, with accession-based SEC reference",
+            "corporate": "full SEC 10-K chunk used in the research, with exact SEC filing link, accession reference, and source SIC when available",
             "media": "Guardian excerpt limited by words, with date and original article link",
         },
         "source_workspace": "external_not_included",
+        "sec_lookup_rows": int(len(sec_lookup)),
+        "group_exclusion_decisions": str(resolved_exclusion_decisions_path) if resolved_exclusion_decisions_path else "",
+        "excluded_topic_count": int(len(excluded_topic_ids)),
+        "excluded_topic_ids": sorted(excluded_topic_ids),
         "outputs": outputs,
         "row_counts": {
             "topics": int(len(topics)),

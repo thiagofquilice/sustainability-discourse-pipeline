@@ -5,10 +5,32 @@
   "guardian_word_limit": 300,
   "source_text_policy": {
     "academic": "full abstract/chunk used in the research, with source record link when available",
-    "corporate": "full SEC 10-K chunk used in the research, with accession-based SEC reference",
+    "corporate": "full SEC 10-K chunk used in the research, with exact SEC filing link, accession reference, and source SIC when available",
     "media": "Guardian excerpt limited by words, with date and original article link"
   },
   "source_workspace": "external_not_included",
+  "sec_lookup_rows": 26928,
+  "group_exclusion_decisions": "/home/thiago/1_Supervised_BERTopic/paper_6topic_discourse_pipeline/outputs/corporate_external_group_exclusion_review/group_exclusion_decisions.csv",
+  "excluded_topic_count": 17,
+  "excluded_topic_ids": [
+    "academic_T3::academic_T3_PG03",
+    "academic_T3::academic_T3_S078",
+    "academic_T3::academic_T3_S109",
+    "academic_T4::academic_T4_PG03",
+    "academic_T4::academic_T4_S026",
+    "academic_T4::academic_T4_S038",
+    "academic_T4::academic_T4_S044",
+    "corporate_T1::corporate_T1_PG01",
+    "corporate_T1::corporate_T1_PG02",
+    "corporate_T1::corporate_T1_PG05",
+    "corporate_T1::corporate_T1_S015",
+    "corporate_T3::corporate_T3_PG01",
+    "corporate_T3::corporate_T3_S003",
+    "corporate_T3::corporate_T3_S005",
+    "corporate_T4::corporate_T4_PG02",
+    "corporate_T4::corporate_T4_S007",
+    "media_T4::media_T4_S022"
+  ],
   "outputs": {
     "topics": "data/app_data/topics.csv",
     "year_series": "data/app_data/year_series.csv",
@@ -22,15 +44,15 @@
     "source_relation_individual_same_year": "data/app_data/source_relation_individual_same_year.csv"
   },
   "row_counts": {
-    "topics": 241,
-    "year_series": 6266,
-    "topic_merge_components": 604,
-    "year_evidence": 4344,
-    "relations": 150,
-    "panel_series": 2106,
-    "unpaired_series": 520,
-    "source_relation_aggregate_same_year": 21,
-    "source_relation_individual_same_year": 150,
+    "topics": 224,
+    "year_series": 5824,
+    "topic_merge_components": 565,
+    "year_evidence": 4030,
+    "relations": 145,
+    "panel_series": 1404,
+    "unpaired_series": 494,
+    "source_relation_aggregate_same_year": 18,
+    "source_relation_individual_same_year": 145,
     "anchor_interpretations": 27,
     "unpaired_interpretations": 6
   }

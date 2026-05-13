@@ -22,6 +22,12 @@ INCLUDED_CORPORATE_PATH = REVIEW_ROOT / "included_corporate_groups.csv"
 ALL_GROUPS_PATH = REVIEW_ROOT / "corporate_focus_all_groups_optional.csv"
 MASTER_REVIEW_PATH = REVIEW_ROOT / "corporate_focus_master_review.csv"
 COMMENTED_DECISIONS_PATH = REVIEW_ROOT / "corporate_focus_commented_decision_rows.csv"
+GROUP_EXCLUSION_DECISIONS_PATH = (
+    PIPELINE_ROOT
+    / "outputs"
+    / "corporate_external_group_exclusion_review"
+    / "group_exclusion_decisions.csv"
+)
 DENOMINATORS_PATH = (
     PAPER_TABLES_ROOT
     / "corporate_focus_document_counts"
@@ -122,6 +128,66 @@ def decision_to_status(value: str) -> str:
     if value == "not related":
         return "external_relevant_unpaired"
     return "aligned"
+
+
+def topic_key(subgroup: object, final_merge_group_id: object) -> tuple[str, str]:
+    return (str(subgroup), str(final_merge_group_id))
+
+
+def load_group_exclusions() -> tuple[set[tuple[str, str]], list[str]]:
+    if not GROUP_EXCLUSION_DECISIONS_PATH.exists():
+        return set(), []
+    decisions = pd.read_csv(GROUP_EXCLUSION_DECISIONS_PATH)
+    decision_column = (
+        "_normalized_review_decision"
+        if "_normalized_review_decision" in decisions.columns
+        else "review_decision"
+    )
+    excluded = decisions.loc[
+        decisions[decision_column].fillna("").astype(str).str.strip().str.lower().eq("exclude")
+    ].copy()
+    if excluded.empty:
+        return set(), []
+    keys = {
+        topic_key(row.subgroup, row.final_merge_group_id)
+        for row in excluded.itertuples(index=False)
+    }
+    ids = sorted(
+        excluded["topic_id"].fillna("").astype(str).replace("", pd.NA).dropna().unique().tolist()
+    )
+    return keys, ids
+
+
+def exclude_group_rows(frame: pd.DataFrame, excluded_groups: set[tuple[str, str]]) -> pd.DataFrame:
+    if not excluded_groups or frame.empty or not {"subgroup", "final_merge_group_id"}.issubset(frame.columns):
+        return frame
+    keep_mask = [
+        topic_key(subgroup, group_id) not in excluded_groups
+        for subgroup, group_id in zip(frame["subgroup"], frame["final_merge_group_id"])
+    ]
+    return frame.loc[keep_mask].copy()
+
+
+def filter_review_for_group_exclusions(
+    review: pd.DataFrame,
+    excluded_groups: set[tuple[str, str]],
+) -> pd.DataFrame:
+    if not excluded_groups or review.empty:
+        return review
+    corporate_key_columns = ["subgroup_corporate", "final_merge_group_id_corporate"]
+    external_key_columns = ["subgroup_noncorporate", "final_merge_group_id_noncorporate"]
+    keep_mask = []
+    for row in review.itertuples(index=False):
+        corporate_group = topic_key(
+            getattr(row, corporate_key_columns[0]),
+            getattr(row, corporate_key_columns[1]),
+        )
+        external_group = topic_key(
+            getattr(row, external_key_columns[0]),
+            getattr(row, external_key_columns[1]),
+        )
+        keep_mask.append(corporate_group not in excluded_groups and external_group not in excluded_groups)
+    return review.loc[keep_mask].copy()
 
 
 def detect_document_id_column(columns: pd.Index) -> str:
@@ -283,8 +349,10 @@ def load_final_aligned_map(review: pd.DataFrame) -> pd.DataFrame:
 def build_corporate_metadata(
     group_doc_counts: dict[tuple[str, str], int],
     group_metadata: pd.DataFrame,
+    included_corporate: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    included_corporate = pd.read_csv(INCLUDED_CORPORATE_PATH)
+    if included_corporate is None:
+        included_corporate = pd.read_csv(INCLUDED_CORPORATE_PATH)
     included_corporate["final_merge_group_id"] = included_corporate["final_merge_group_id"].astype(str)
     included_corporate["macro_topic"] = included_corporate["assigned_label"]
 
@@ -783,12 +851,14 @@ def write_topic_tables(tables: dict[str, pd.DataFrame]) -> dict[str, str]:
 
 
 def build_outputs() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str], dict[str, object]]:
+    excluded_groups, excluded_topic_ids = load_group_exclusions()
     year_evidence = load_selected_year_evidence()
-    review = load_review_with_status()
-    group_metadata = load_group_metadata()
+    review = filter_review_for_group_exclusions(load_review_with_status(), excluded_groups)
+    group_metadata = exclude_group_rows(load_group_metadata(), excluded_groups)
     metadata_lookup = group_meta_lookup(group_metadata)
     included_corporate = pd.read_csv(INCLUDED_CORPORATE_PATH)
     included_corporate["final_merge_group_id"] = included_corporate["final_merge_group_id"].astype(str)
+    included_corporate = exclude_group_rows(included_corporate, excluded_groups)
 
     needed_groups = collect_needed_groups(review, included_corporate)
     (
@@ -798,7 +868,7 @@ def build_outputs() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str], dict[st
         annual_denominator_map,
         doc_columns_used,
     ) = load_document_maps(needed_groups)
-    corporate_meta = build_corporate_metadata(group_doc_counts, group_metadata)
+    corporate_meta = build_corporate_metadata(group_doc_counts, group_metadata, included_corporate)
     denominator_map = load_denominator_map()
 
     aligned_frame = build_aligned_relative_frame(
@@ -826,6 +896,9 @@ def build_outputs() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str], dict[st
 
     validations = {
         "document_id_columns_used": doc_columns_used,
+        "group_exclusion_decisions": str(GROUP_EXCLUSION_DECISIONS_PATH),
+        "excluded_group_count": int(len(excluded_groups)),
+        "excluded_topic_ids": excluded_topic_ids,
         "annual_denominator_source": "unique source documents by source, macro topic, and year from reviewed merged document_topics.csv",
         "annual_metric_columns": [
             "year_document_count",

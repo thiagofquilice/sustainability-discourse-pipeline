@@ -441,7 +441,7 @@ def note_card(title: str, body: str) -> None:
 
 
 @st.cache_data(show_spinner=False)
-def load_app_data(data_dir_text: str) -> tuple[dict[str, Any], list[str]]:
+def load_app_data(data_dir_text: str, cache_token: str) -> tuple[dict[str, Any], list[str]]:
     data_dir = Path(data_dir_text)
     required_files = [
         "topics.csv",
@@ -625,7 +625,7 @@ def render_app_guide() -> None:
             """
             This is a companion to the paper, not a full data repository.
 
-            Start with **Paper overview** for the study logic. Use **Domain overview** to understand each macro-topic. Use **Browse topics** for source-specific microtopics. Use **Corporate-external relations** to see how corporate anchors connect to academic and media discourse. **Advanced timing diagnostics** keeps only the simplified diagnostics reported in the paper.
+            Use **Browse topics** for source-specific microtopics. Use **Corporate-external relations** to see how corporate anchors connect to academic and media discourse.
             """
         )
 
@@ -882,7 +882,8 @@ def render_evidence(evidence: pd.DataFrame, topic_id: str, series: pd.DataFrame,
             if reference:
                 st.caption(reference)
             if link:
-                st.link_button("Open original source", link)
+                button_label = "Open SEC filing" if source == "corporate" else "Open original source"
+                st.link_button(button_label, link)
 
 
 def render_topic_detail(
@@ -1302,28 +1303,6 @@ def render_relation_summary_tab(summary: pd.DataFrame, macro_topic: str, level: 
     render_selected_relation_details(row)
 
 
-def render_temporal_relations_mode(data: dict[str, Any], macro_topic: str) -> None:
-    st.header("Advanced timing diagnostics")
-    st.caption("Simplified timing diagnostics retained for the paper: same-year Spearman, first active-year gap, and peak-year gap.")
-    aggregate = data["source_relation_aggregate_same_year"]
-    individual = data["source_relation_individual_same_year"]
-    aggregate_macro = aggregate[aggregate["macro_topic"] == macro_topic].copy()
-    individual_macro = individual[individual["macro_topic"] == macro_topic].copy()
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Aggregate relations", f"{len(aggregate_macro):,}")
-    col2.metric("Individual relations", f"{len(individual_macro):,}")
-    aggregate_p = pd.to_numeric(aggregate_macro.get("spearman_p", pd.Series(dtype=float)), errors="coerce")
-    individual_p = pd.to_numeric(individual_macro.get("spearman_p", pd.Series(dtype=float)), errors="coerce")
-    col3.metric("Aggregate p < .10", f"{int((aggregate_p < 0.10).sum()):,}")
-    col4.metric("Individual p < .10", f"{int((individual_p < 0.10).sum()):,}")
-    render_relation_method_guide()
-    aggregate_tab, individual_tab = st.tabs(["Aggregate source relations", "Individual topic relations"])
-    with aggregate_tab:
-        render_relation_summary_tab(aggregate, macro_topic, "aggregate")
-    with individual_tab:
-        render_relation_summary_tab(individual, macro_topic, "individual")
-
-
 def main() -> None:
     st.set_page_config(
         page_title="Sustainability Discourse Companion",
@@ -1334,7 +1313,9 @@ def main() -> None:
     require_password()
 
     data_dir = Path(os.environ.get("SUSTAINABILITY_APP_DATA", DEFAULT_DATA_DIR))
-    data, missing = load_app_data(str(data_dir))
+    manifest_path = data_dir / "app_data_manifest.json"
+    cache_token = str(manifest_path.stat().st_mtime_ns) if manifest_path.exists() else ""
+    data, missing = load_app_data(str(data_dir), cache_token)
     if missing:
         st.error("The Streamlit app data files are missing.")
         st.code(
@@ -1351,31 +1332,18 @@ def main() -> None:
     view_mode = st.sidebar.radio(
         "Reader path",
         [
-            "Paper overview",
-            "Domain overview",
             "Browse topics",
             "Corporate-external relations",
-            "Advanced timing diagnostics",
         ],
     )
-    needs_macro = view_mode != "Paper overview"
-    macro_topic = "T1"
-    if needs_macro:
-        macro_topic = st.sidebar.selectbox("Macro-topic", MACRO_TOPIC_ORDER, format_func=macro_option)
+    macro_topic = st.sidebar.selectbox("Macro-topic", MACRO_TOPIC_ORDER, format_func=macro_option)
 
-    if view_mode == "Paper overview":
-        render_paper_overview(data)
-    elif view_mode == "Domain overview":
-        render_domain_overview(data, macro_topic)
-    elif view_mode == "Browse topics":
+    if view_mode == "Browse topics":
         st.header(macro_option(macro_topic))
         render_browse_topics(data, macro_topic)
-    elif view_mode == "Corporate-external relations":
-        st.header(macro_option(macro_topic))
-        render_relations_mode(data, macro_topic)
     else:
         st.header(macro_option(macro_topic))
-        render_temporal_relations_mode(data, macro_topic)
+        render_relations_mode(data, macro_topic)
 
 
 if __name__ == "__main__":

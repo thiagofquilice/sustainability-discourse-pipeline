@@ -20,6 +20,12 @@ DEFAULT_SELECTED_TOPICS = (
 )
 DEFAULT_MERGED_ROOT = PIPELINE_ROOT / "outputs" / "bertopic_micro_merged_multiaspect_reviewed"
 DEFAULT_REVIEW_ROOT = PIPELINE_ROOT / "outputs" / "corporate_focus_review_with_overrides"
+DEFAULT_GROUP_EXCLUSION_DECISIONS = (
+    PIPELINE_ROOT
+    / "outputs"
+    / "corporate_external_group_exclusion_review"
+    / "group_exclusion_decisions.csv"
+)
 DEFAULT_OUTPUT_DIR = PIPELINE_ROOT / "outputs" / "paper_tables" / "corporate_focus_document_counts"
 
 MACRO_TOPIC_ORDER = ["T1", "T2", "T3", "T4", "T5", "T6"]
@@ -39,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--selected-topics", type=Path, default=DEFAULT_SELECTED_TOPICS)
     parser.add_argument("--merged-root", type=Path, default=DEFAULT_MERGED_ROOT)
     parser.add_argument("--review-root", type=Path, default=DEFAULT_REVIEW_ROOT)
+    parser.add_argument("--group-exclusion-decisions", type=Path, default=DEFAULT_GROUP_EXCLUSION_DECISIONS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     return parser.parse_args()
 
@@ -82,11 +89,46 @@ def load_final_status_map(review_root: Path) -> dict[str, str]:
     )
 
 
-def assign_paper_status(selected_topics: pd.DataFrame, review_root: Path) -> pd.DataFrame:
+def make_topic_id(subgroup: object, final_merge_group_id: object) -> str:
+    return f"{subgroup}::{final_merge_group_id}"
+
+
+def load_group_exclusion_topic_ids(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    decisions = pd.read_csv(path).fillna("")
+    decision_column = (
+        "_normalized_review_decision"
+        if "_normalized_review_decision" in decisions.columns
+        else "review_decision"
+    )
+    excluded = decisions.loc[
+        decisions[decision_column].astype(str).str.strip().str.lower().eq("exclude")
+    ].copy()
+    if "topic_id" in excluded.columns:
+        return set(excluded["topic_id"].astype(str))
+    return {
+        make_topic_id(row.subgroup, row.final_merge_group_id)
+        for row in excluded.itertuples(index=False)
+    }
+
+
+def assign_paper_status(
+    selected_topics: pd.DataFrame,
+    review_root: Path,
+    group_exclusion_decisions: Path,
+) -> pd.DataFrame:
     status_map = load_final_status_map(review_root)
+    excluded_topic_ids = load_group_exclusion_topic_ids(group_exclusion_decisions)
     result = selected_topics.copy()
+    result["topic_id"] = [
+        make_topic_id(row.subgroup, row.final_merge_group_id)
+        for row in result.itertuples(index=False)
+    ]
 
     def status_for_row(row: pd.Series) -> str:
+        if row["topic_id"] in excluded_topic_ids:
+            return "excluded"
         if str(row["source"]) == "corporate":
             return "corporate_kept"
         decision = status_map.get(str(row["final_merge_group_id"]), "")
@@ -185,7 +227,8 @@ def main() -> None:
     ensure_directory(args.output_dir)
 
     selected_topics = pd.read_csv(args.selected_topics)
-    selected_topics = assign_paper_status(selected_topics, args.review_root)
+    selected_topics = assign_paper_status(selected_topics, args.review_root, args.group_exclusion_decisions)
+    group_exclusion_topic_ids = load_group_exclusion_topic_ids(args.group_exclusion_decisions)
     counts, counts_final_by_source, doc_column = build_document_counts(selected_topics, args.merged_root)
 
     csv_path = args.output_dir / "macro_topic_document_counts.csv"
@@ -197,6 +240,9 @@ def main() -> None:
         "selected_topics": str(args.selected_topics),
         "merged_root": str(args.merged_root),
         "review_root": str(args.review_root),
+        "group_exclusion_decisions": str(args.group_exclusion_decisions),
+        "group_exclusion_topic_count": int(len(group_exclusion_topic_ids)),
+        "excluded_selected_topic_rows": int(selected_topics["paper_status"].eq("excluded").sum()),
         "output_dir": str(args.output_dir),
         "document_id_column_used": doc_column,
         "macro_topic_rows": int(len(counts)),

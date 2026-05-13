@@ -74,7 +74,16 @@ LEGACY_RELATIVE_COLUMN = "relative_share_of_macro_topic_source_docs"
 ANNUAL_PREVALENCE_COLUMN = "annual_document_prevalence"
 TITLE_Y = 0.995
 LEGEND_Y = 0.94
-LAYOUT_TOP = 0.885
+LAYOUT_TOP = 0.84
+PANEL_LETTER_Y = 1.12
+PANEL_NOTE_FONT_SIZE = 10.2
+PANEL_NOTE_BBOX = {
+    "facecolor": "#FFFFFF",
+    "alpha": 1.0,
+    "edgecolor": "#CFCFCF",
+    "linewidth": 0.6,
+    "boxstyle": "round,pad=0.32",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,7 +144,7 @@ def panel_letter(index: int) -> str:
 def add_panel_letter(ax: plt.Axes, index: int) -> None:
     ax.text(
         -0.075,
-        1.12,
+        PANEL_LETTER_Y,
         panel_letter(index),
         transform=ax.transAxes,
         ha="left",
@@ -144,6 +153,79 @@ def add_panel_letter(ax: plt.Axes, index: int) -> None:
         fontweight="bold",
         color="#222222",
         clip_on=False,
+    )
+
+
+def make_panel_grid(
+    nrows: int,
+    ncols: int,
+    fig_width: float,
+    fig_height: float,
+) -> tuple[plt.Figure, list[plt.Axes], list[plt.Axes]]:
+    fig = plt.figure(figsize=(fig_width, fig_height))
+    grid = fig.add_gridspec(
+        nrows=2 * nrows,
+        ncols=ncols,
+        height_ratios=[1.55, 3.65] * nrows,
+        left=0.06,
+        right=0.99,
+        bottom=0.07,
+        top=LAYOUT_TOP,
+        hspace=0.08,
+        wspace=0.15,
+    )
+    header_axes: list[plt.Axes] = []
+    plot_axes: list[plt.Axes] = []
+    first_plot_ax: plt.Axes | None = None
+    for row in range(nrows):
+        for col in range(ncols):
+            header_ax = fig.add_subplot(grid[2 * row, col])
+            header_ax.axis("off")
+            if first_plot_ax is None:
+                plot_ax = fig.add_subplot(grid[2 * row + 1, col])
+                first_plot_ax = plot_ax
+            else:
+                plot_ax = fig.add_subplot(grid[2 * row + 1, col], sharex=first_plot_ax, sharey=first_plot_ax)
+            header_axes.append(header_ax)
+            plot_axes.append(plot_ax)
+    return fig, header_axes, plot_axes
+
+
+def add_panel_header(header_ax: plt.Axes, index: int, label: str, note: str) -> None:
+    header_ax.text(
+        -0.075,
+        0.68,
+        panel_letter(index),
+        transform=header_ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=13,
+        fontweight="bold",
+        color="#222222",
+        clip_on=False,
+    )
+    header_ax.text(
+        0.0,
+        0.68,
+        wrapped_label(label),
+        transform=header_ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=12,
+        fontweight="bold",
+        color="#222222",
+    )
+    header_ax.text(
+        0.012,
+        0.03,
+        note,
+        transform=header_ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=PANEL_NOTE_FONT_SIZE,
+        linespacing=1.22,
+        color="#363636",
+        bbox=PANEL_NOTE_BBOX,
     )
 
 
@@ -287,15 +369,14 @@ def render_macro_topic_figure(
     ncols = 1 if n_topics == 1 else 2
     nrows = math.ceil(n_topics / ncols)
     fig_width = 8.8 if ncols == 1 else 15.2
-    fig_height = 4.8 if n_topics == 1 else 4.05 * nrows + 1.8
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height), sharex=True, sharey=True)
-    axes_list = list(axes.flatten()) if hasattr(axes, "flatten") else [axes]
+    fig_height = 5.9 if n_topics == 1 else 5.2 * nrows + 2.0
+    fig, header_axes, axes_list = make_panel_grid(nrows, ncols, fig_width, fig_height)
 
     plotted_series_count: dict[str, int] = {role: 0 for role in SERIES_ORDER}
 
     for ax_idx, corporate_group_id in enumerate(topic_order):
         ax = axes_list[ax_idx]
-        add_panel_letter(ax, ax_idx)
+        header_ax = header_axes[ax_idx]
         panel_df = df_macro[df_macro["corporate_final_merge_group_id"].astype(str) == corporate_group_id].copy()
         label = str(panel_df["corporate_topic_label"].iloc[0])
         academic_topics = panel_value(panel_df, "academic_aggregate", "n_contributing_external_topics")
@@ -316,25 +397,18 @@ def render_macro_topic_figure(
                 linestyle=style["linestyle"],
                 linewidth=style["linewidth"],
                 solid_capstyle="round",
+                zorder=2,
             )
             plotted_series_count[role] += 1
 
-        ax.set_title(wrapped_label(label), loc="left", fontweight="bold", pad=20)
-        ax.text(
-            0.0,
-            0.97,
-            (
-                f"Academic topics = {academic_topics} | Media topics = {media_topics}\n"
-                f"Academic topic documents = {academic_docs:,} | Media topic documents = {media_docs:,}\n"
-                f"Corporate topic documents = {corporate_docs:,}\n"
-                f"{annotation_note}"
-            ),
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=8.5,
-            linespacing=1.25,
-            color="#5C5C5C",
+        add_panel_header(
+            header_ax,
+            ax_idx,
+            label,
+            f"Academic topics = {academic_topics} | Media topics = {media_topics}\n"
+            f"Academic topic documents = {academic_docs:,} | Media topic documents = {media_docs:,}\n"
+            f"Corporate topic documents = {corporate_docs:,}\n"
+            f"{annotation_note}",
         )
         ax.set_xlim(2000, 2025)
         ax.set_ylim(0, y_max)
@@ -343,7 +417,8 @@ def render_macro_topic_figure(
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    for ax in axes_list[n_topics:]:
+    for header_ax, ax in zip(header_axes[n_topics:], axes_list[n_topics:]):
+        fig.delaxes(header_ax)
         fig.delaxes(ax)
 
     fig.legend(
@@ -356,8 +431,6 @@ def render_macro_topic_figure(
     fig.suptitle(MACRO_TOPIC_LABELS.get(macro_topic, macro_topic), x=0.06, y=TITLE_Y, ha="left", fontsize=16, fontweight="bold")
     fig.text(0.5, 0.03, "Year", ha="center", fontsize=11)
     fig.text(0.012, 0.5, y_axis_label, va="center", rotation=90, fontsize=11)
-    fig.tight_layout(rect=[0.03, 0.05, 1.0, LAYOUT_TOP])
-
     png_path = output_dir / f"{macro_topic}_{filename_suffix}.png"
     pdf_path = output_dir / f"{macro_topic}_{filename_suffix}.pdf"
     fig.savefig(png_path, bbox_inches="tight")
@@ -439,14 +512,13 @@ def render_unpaired_macro_topic_figure(
     ncols = 1 if n_topics == 1 else 2
     nrows = math.ceil(n_topics / ncols)
     fig_width = 8.8 if ncols == 1 else 15.2
-    fig_height = 4.8 if n_topics == 1 else 4.05 * nrows + 1.8
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_width, fig_height), sharex=True, sharey=True)
-    axes_list = list(axes.flatten()) if hasattr(axes, "flatten") else [axes]
+    fig_height = 5.9 if n_topics == 1 else 5.2 * nrows + 2.0
+    fig, header_axes, axes_list = make_panel_grid(nrows, ncols, fig_width, fig_height)
     plotted_by_source = {"academic": 0, "media": 0}
 
     for ax_idx, group_id in enumerate(topic_order):
         ax = axes_list[ax_idx]
-        add_panel_letter(ax, ax_idx)
+        header_ax = header_axes[ax_idx]
         panel_df = df_macro[df_macro["final_merge_group_id"].astype(str) == group_id].copy()
         label = str(panel_df["topic_label"].iloc[0]).strip() or str(panel_df["topic_name_original"].iloc[0])
         source = str(panel_df["source"].iloc[0])
@@ -461,24 +533,17 @@ def render_unpaired_macro_topic_figure(
             linestyle=style["linestyle"],
             linewidth=style["linewidth"],
             solid_capstyle="round",
+            zorder=2,
         )
         plotted_by_source[source] = plotted_by_source.get(source, 0) + 1
 
-        ax.set_title(wrapped_label(label), loc="left", fontweight="bold", pad=20)
-        ax.text(
-            0.0,
-            0.97,
-            (
-                f"Source = {source.title()}\n"
-                f"Topic documents = {docs:,}\n"
-                f"{annotation_note}"
-            ),
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=8.5,
-            linespacing=1.25,
-            color="#5C5C5C",
+        add_panel_header(
+            header_ax,
+            ax_idx,
+            label,
+            f"Source = {source.title()}\n"
+            f"Topic documents = {docs:,}\n"
+            f"{annotation_note}",
         )
         ax.set_xlim(2000, 2025)
         ax.set_ylim(0, y_max)
@@ -487,7 +552,8 @@ def render_unpaired_macro_topic_figure(
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
-    for ax in axes_list[n_topics:]:
+    for header_ax, ax in zip(header_axes[n_topics:], axes_list[n_topics:]):
+        fig.delaxes(header_ax)
         fig.delaxes(ax)
 
     fig.legend(
@@ -507,8 +573,6 @@ def render_unpaired_macro_topic_figure(
     )
     fig.text(0.5, 0.03, "Year", ha="center", fontsize=11)
     fig.text(0.012, 0.5, y_axis_label, va="center", rotation=90, fontsize=11)
-    fig.tight_layout(rect=[0.03, 0.05, 1.0, LAYOUT_TOP])
-
     png_path = output_dir / f"{macro_topic}_{filename_suffix}.png"
     pdf_path = output_dir / f"{macro_topic}_{filename_suffix}.pdf"
     fig.savefig(png_path, bbox_inches="tight")

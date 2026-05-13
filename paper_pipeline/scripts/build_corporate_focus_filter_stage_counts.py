@@ -27,6 +27,12 @@ REVIEW_DECISIONS_PATH = (
     / "corporate_focus_review_with_overrides"
     / "corporate_focus_commented_decision_rows.csv"
 )
+GROUP_EXCLUSION_FINAL_COUNTS_PATH = (
+    PIPELINE_ROOT
+    / "outputs"
+    / "corporate_external_group_exclusion_review"
+    / "final_filter_source_counts.csv"
+)
 OUTPUT_DIR = PIPELINE_ROOT / "outputs" / "paper_tables" / "corporate_focus_filter_stage_counts"
 OUTPUT_CSV_PATH = OUTPUT_DIR / "filter_stage_source_counts.csv"
 OUTPUT_MANIFEST_PATH = OUTPUT_DIR / "filter_stage_source_counts_manifest.json"
@@ -196,6 +202,21 @@ def build_selected_subset_counts(
     return pre_counts, post_counts
 
 
+def load_group_exclusion_final_counts() -> dict[str, int]:
+    if not GROUP_EXCLUSION_FINAL_COUNTS_PATH.exists():
+        return {}
+    frame = pd.read_csv(GROUP_EXCLUSION_FINAL_COUNTS_PATH)
+    if not {"source", "retained_unique_documents"}.issubset(frame.columns):
+        raise KeyError(f"Expected source and retained_unique_documents in {GROUP_EXCLUSION_FINAL_COUNTS_PATH}")
+    counts = (
+        frame.set_index("source")["retained_unique_documents"]
+        .reindex(SOURCE_ORDER, fill_value=0)
+        .astype(int)
+        .to_dict()
+    )
+    return counts
+
+
 def make_row(
     filter_stage: str,
     counts: dict[str, int],
@@ -225,6 +246,7 @@ def main() -> None:
     document_topics_by_subgroup, reviewed_identifier = load_reviewed_document_topics()
     reviewed_six_topic_counts, reviewed_microtopic_counts = build_reviewed_counts(document_topics_by_subgroup)
     pre_review_counts, post_review_counts = build_selected_subset_counts(document_topics_by_subgroup)
+    group_exclusion_counts = load_group_exclusion_final_counts()
 
     rows = [
         make_row(
@@ -263,6 +285,16 @@ def main() -> None:
             note="Final paper subset after removing non-corporate delete cases. not related topics are retained.",
         ),
     ]
+    if group_exclusion_counts:
+        rows.append(
+            make_row(
+                filter_stage="Selected corporate-focus subset, post-group-exclusion",
+                counts=group_exclusion_counts,
+                unit="unique_documents",
+                identifier_used="deduplicated source_doc_id after marked corporate/external group exclusions",
+                note="Final analysis subset after the last manual sustainability-scope filter over corporate, media, and academic groups.",
+            )
+        )
     result = pd.DataFrame(rows)
     result.to_csv(OUTPUT_CSV_PATH, index=False)
 
@@ -276,6 +308,10 @@ def main() -> None:
         ),
         "corporate_count_unchanged_after_review": int(post_review_counts["corporate"]) == int(pre_review_counts["corporate"]),
     }
+    if group_exclusion_counts:
+        validations["post_group_exclusion_not_greater_than_post_review"] = all(
+            int(group_exclusion_counts[source]) <= int(post_review_counts[source]) for source in SOURCE_ORDER
+        )
 
     manifest = {
         "output_csv": str(OUTPUT_CSV_PATH),
@@ -297,8 +333,10 @@ def main() -> None:
         "selected_corporate_focus_subset": {
             "selected_topics_path": str(SELECTED_TOPICS_PATH),
             "review_decisions_path": str(REVIEW_DECISIONS_PATH),
+            "group_exclusion_final_counts_path": str(GROUP_EXCLUSION_FINAL_COUNTS_PATH),
             "pre_final_review_counts": pre_review_counts,
             "post_final_review_counts": post_review_counts,
+            "post_group_exclusion_counts": group_exclusion_counts,
         },
         "validations": validations,
     }
