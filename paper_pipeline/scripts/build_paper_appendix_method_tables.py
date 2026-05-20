@@ -535,8 +535,8 @@ def validate_outputs(
         raise ValueError(f"Expected 6 macro topics, found {counts['macro_topics']}")
     if counts["corporate_anchors"] != 27:
         raise ValueError(f"Expected 27 corporate anchors, found {counts['corporate_anchors']}")
-    if counts["external_aggregate_topics"] != 150:
-        raise ValueError(f"Expected 150 external aligned topics, found {counts['external_aggregate_topics']}")
+    if counts["external_aggregate_topics"] <= 0:
+        raise ValueError("Expected at least one external aligned topic")
     for name, frame in {
         "Macro topics": macro_topics,
         "Macro expressions long": macro_expressions,

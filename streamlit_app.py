@@ -91,8 +91,8 @@ SERIES_COLORS = {
 FINAL_SAMPLE_METRICS = {
     "Corporate anchors": 27,
     "Non-corporate topics reviewed": 214,
-    "Aligned counterparts": 150,
-    "Relevant but unpaired": 20,
+    "Aligned counterparts": 152,
+    "Relevant but unpaired": 18,
     "Excluded after review": 44,
     "Final unique documents": 116_356,
 }

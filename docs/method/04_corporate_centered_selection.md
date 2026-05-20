@@ -68,8 +68,8 @@ outcomes:
 Final outcomes:
 
 ```text
-150 aligned external counterparts
-20 relevant unpaired external topics
+152 aligned external counterparts
+18 relevant unpaired external topics
 44 excluded topics
 ```
 
