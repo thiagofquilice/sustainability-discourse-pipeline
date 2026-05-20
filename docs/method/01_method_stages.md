@@ -23,5 +23,5 @@
 - Topic-modeling design: 18 source-by-domain BERTopic subgroups.
 - Final corporate anchors: 27 consolidated corporate microtopics.
 - Non-corporate topics reviewed in the corporate-centered workbook: 214.
-- Final external review outcomes: 152 aligned counterparts, 18 relevant
+- Final external review outcomes: 151 aligned counterparts, 19 relevant
   unpaired external topics, and 44 excluded topics.

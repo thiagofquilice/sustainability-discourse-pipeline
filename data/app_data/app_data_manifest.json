@@ -48,11 +48,11 @@
     "year_series": 5824,
     "topic_merge_components": 565,
     "year_evidence": 4030,
-    "relations": 147,
+    "relations": 146,
     "panel_series": 1404,
-    "unpaired_series": 442,
+    "unpaired_series": 468,
     "source_relation_aggregate_same_year": 18,
-    "source_relation_individual_same_year": 147,
+    "source_relation_individual_same_year": 146,
     "anchor_interpretations": 27,
     "unpaired_interpretations": 6
   }
