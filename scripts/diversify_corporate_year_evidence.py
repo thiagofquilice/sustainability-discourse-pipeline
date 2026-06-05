@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Diversify corporate Streamlit evidence snippets by company.
+"""Diversify Streamlit evidence snippets for selected sources.
 
 This post-processing script keeps the original Streamlit data schema intact.
-It reorders only corporate representative_docs_json lists so that the first
-three visible snippets prefer distinct company keys when alternatives exist.
+It reorders corporate representative_docs_json lists so that the first three
+visible snippets prefer distinct company keys, and media lists so that the
+first three visible snippets prefer distinct news articles.
 
-Because the released app data stores only the three visible snippets, the
-script also reads the upstream corporate micro-topic year evidence file, which
-contains up to five candidate chunks per component micro-topic/year. Current
-app snippets are preserved first; upstream-only candidates are appended to the
+Because the released app data stores only the visible snippets, the script
+also reads the upstream micro-topic year evidence file, which contains
+additional candidate chunks per component micro-topic/year. Current app
+snippets are preserved first; upstream-only candidates are appended to the
 candidate pool when needed.
 """
 
@@ -39,6 +40,7 @@ DEFAULT_SELECTED_TOPICS = Path(
     "corporate_focus_stage12_colab_drive_with_overrides/data/selected_micro_topics.csv"
 )
 DEFAULT_SEC_RAW_DIR = Path("/home/thiago/Topic_modelling_dataset_unico")
+DIVERSIFIED_SOURCES = {"corporate", "media"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -97,17 +99,54 @@ def top_source_doc_ids(docs: list[dict[str, Any]], limit: int) -> str:
     return "|".join(values)
 
 
-def unique_company_count(docs: list[dict[str, Any]], company_lookup: dict[str, str], limit: int) -> int:
+def diversity_unit_for_source(source: str) -> str:
+    if source == "corporate":
+        return "company"
+    if source == "media":
+        return "article"
+    return "document"
+
+
+def doc_diversity_key(source: str, doc: dict[str, Any], company_lookup: dict[str, str]) -> str:
+    source_doc_id = str(doc.get("source_doc_id", "") or doc.get("document_id", "") or "")
+    if source == "corporate":
+        return doc_company_key(doc, company_lookup)
+    if source == "media":
+        return source_doc_id or f"unknown_chunk:{doc.get('chunk_id', '')}"
+    return source_doc_id or f"unknown_chunk:{doc.get('chunk_id', '')}"
+
+
+def unique_diversity_count(
+    source: str,
+    docs: list[dict[str, Any]],
+    company_lookup: dict[str, str],
+    limit: int,
+) -> int:
     keys = [
-        doc_company_key(doc, company_lookup)
+        doc_diversity_key(source, doc, company_lookup)
         for doc in docs[:limit]
-        if str(doc.get("source_doc_id", "") or doc.get("document_id", "") or "")
+        if str(doc.get("source_doc_id", "") or doc.get("document_id", "") or doc.get("chunk_id", ""))
     ]
     return len(set(keys))
 
 
-def company_keys_for_docs(docs: list[dict[str, Any]], company_lookup: dict[str, str], limit: int) -> str:
-    return "|".join(doc_company_key(doc, company_lookup) for doc in docs[:limit])
+def diversity_keys_for_docs(
+    source: str,
+    docs: list[dict[str, Any]],
+    company_lookup: dict[str, str],
+    limit: int,
+) -> str:
+    return "|".join(doc_diversity_key(source, doc, company_lookup) for doc in docs[:limit])
+
+
+def has_repeated_diversity_key(
+    source: str,
+    docs: list[dict[str, Any]],
+    company_lookup: dict[str, str],
+    limit: int,
+) -> bool:
+    keys = [doc_diversity_key(source, doc, company_lookup) for doc in docs[:limit]]
+    return len(keys) != len(set(keys))
 
 
 def merge_candidate_docs(
@@ -141,7 +180,7 @@ def build_upstream_candidate_docs(
         selected_topics_csv,
         usecols=["subgroup", "source", "assigned_label", "micro_topic_id", "final_merge_group_id"],
     ).fillna("")
-    selected = selected.loc[selected["source"].astype(str).eq("corporate")].copy()
+    selected = selected.loc[selected["source"].astype(str).isin(DIVERSIFIED_SOURCES)].copy()
     selected["micro_topic_id"] = pd.to_numeric(selected["micro_topic_id"], errors="coerce").astype("Int64")
 
     usecols = [
@@ -153,7 +192,7 @@ def build_upstream_candidate_docs(
         "chunk_records_json",
     ]
     evidence = pd.read_csv(evidence_csv, usecols=usecols).fillna("")
-    evidence = evidence.loc[evidence["source"].astype(str).eq("corporate")].copy()
+    evidence = evidence.loc[evidence["source"].astype(str).isin(DIVERSIFIED_SOURCES)].copy()
     evidence["micro_topic_id"] = pd.to_numeric(evidence["micro_topic_id"], errors="coerce").astype("Int64")
     merged = evidence.merge(
         selected,
@@ -182,65 +221,104 @@ def build_upstream_candidate_docs(
 
 def diversify_docs(
     docs: list[dict[str, Any]],
+    source: str,
     company_lookup: dict[str, str],
     visible_limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     selected_indices: list[int] = []
-    used_companies: set[str] = set()
+    used_keys: set[str] = set()
 
     for index, doc in enumerate(docs):
         if len(selected_indices) >= min(visible_limit, len(docs)):
             break
-        company_key = doc_company_key(doc, company_lookup)
-        if company_key in used_companies:
+        diversity_key = doc_diversity_key(source, doc, company_lookup)
+        if diversity_key in used_keys:
             continue
         selected_indices.append(index)
-        used_companies.add(company_key)
+        used_keys.add(diversity_key)
 
     first_pass_count = len(selected_indices)
-    for index, _doc in enumerate(docs):
-        if len(selected_indices) >= min(visible_limit, len(docs)):
-            break
-        if index in selected_indices:
-            continue
-        selected_indices.append(index)
+    if source != "media":
+        for index, _doc in enumerate(docs):
+            if len(selected_indices) >= min(visible_limit, len(docs)):
+                break
+            if index in selected_indices:
+                continue
+            selected_indices.append(index)
 
     selected_set = set(selected_indices)
-    reordered = [docs[index] for index in selected_indices] + [
-        doc for index, doc in enumerate(docs) if index not in selected_set
-    ]
+    if source == "media":
+        reordered = [docs[index] for index in selected_indices]
+        reordered_keys = {doc_diversity_key(source, doc, company_lookup) for doc in reordered}
+        for index, doc in enumerate(docs):
+            if index in selected_set:
+                continue
+            diversity_key = doc_diversity_key(source, doc, company_lookup)
+            if diversity_key in reordered_keys:
+                continue
+            reordered.append(doc)
+            reordered_keys.add(diversity_key)
+    else:
+        reordered = [docs[index] for index in selected_indices] + [
+            doc for index, doc in enumerate(docs) if index not in selected_set
+        ]
 
     original_top = docs[:visible_limit]
     diverse_top = reordered[:visible_limit]
-    original_unique = unique_company_count(original_top, company_lookup, visible_limit)
-    diverse_unique = unique_company_count(diverse_top, company_lookup, visible_limit)
-    available_unique = unique_company_count(docs, company_lookup, len(docs))
+    original_unique = unique_diversity_count(source, original_top, company_lookup, visible_limit)
+    diverse_unique = unique_diversity_count(source, diverse_top, company_lookup, visible_limit)
+    available_unique = unique_diversity_count(source, docs, company_lookup, len(docs))
     changed_order = top_source_doc_ids(original_top, visible_limit) != top_source_doc_ids(diverse_top, visible_limit)
     fallback_used = first_pass_count < min(visible_limit, len(docs))
+    diversity_unit = diversity_unit_for_source(source)
     if diverse_unique > original_unique:
         outcome = "improved"
     elif len(docs) < 2:
         outcome = "too_few_snippets"
     elif available_unique <= original_unique:
-        outcome = "no_available_company_gain"
+        outcome = f"no_available_{diversity_unit}_gain"
     elif not changed_order:
         outcome = "already_diverse"
     else:
-        outcome = "reordered_without_company_count_gain"
+        outcome = "reordered_without_count_gain"
+
+    company_top_original = diversity_keys_for_docs(source, original_top, company_lookup, visible_limit) if source == "corporate" else ""
+    company_top_diverse = diversity_keys_for_docs(source, diverse_top, company_lookup, visible_limit) if source == "corporate" else ""
+    article_top_original = diversity_keys_for_docs(source, original_top, company_lookup, visible_limit) if source == "media" else ""
+    article_top_diverse = diversity_keys_for_docs(source, diverse_top, company_lookup, visible_limit) if source == "media" else ""
 
     metrics = {
         "n_snippets": len(docs),
-        "available_unique_companies_all_snippets": available_unique,
-        "original_unique_companies_top3": original_unique,
-        "diverse_unique_companies_top3": diverse_unique,
+        "diversity_unit": diversity_unit,
+        "available_unique_units_all_snippets": available_unique,
+        "original_unique_units_top3": original_unique,
+        "diverse_unique_units_top3": diverse_unique,
         "changed_order": bool(changed_order),
         "fallback_used": bool(fallback_used),
-        "improved_unique_companies": bool(diverse_unique > original_unique),
+        "original_has_repeated_unit_top3": has_repeated_diversity_key(
+            source, original_top, company_lookup, visible_limit
+        ),
+        "diverse_has_repeated_unit_top3": has_repeated_diversity_key(
+            source, diverse_top, company_lookup, visible_limit
+        ),
+        "improved_unique_units": bool(diverse_unique > original_unique),
         "diversity_outcome": outcome,
         "original_source_doc_ids_top3": top_source_doc_ids(original_top, visible_limit),
         "diverse_source_doc_ids_top3": top_source_doc_ids(diverse_top, visible_limit),
-        "original_company_keys_top3": company_keys_for_docs(original_top, company_lookup, visible_limit),
-        "diverse_company_keys_top3": company_keys_for_docs(diverse_top, company_lookup, visible_limit),
+        "original_diversity_keys_top3": diversity_keys_for_docs(source, original_top, company_lookup, visible_limit),
+        "diverse_diversity_keys_top3": diversity_keys_for_docs(source, diverse_top, company_lookup, visible_limit),
+        "available_unique_companies_all_snippets": available_unique if source == "corporate" else "",
+        "original_unique_companies_top3": original_unique if source == "corporate" else "",
+        "diverse_unique_companies_top3": diverse_unique if source == "corporate" else "",
+        "improved_unique_companies": bool(source == "corporate" and diverse_unique > original_unique),
+        "original_company_keys_top3": company_top_original,
+        "diverse_company_keys_top3": company_top_diverse,
+        "available_unique_articles_all_snippets": available_unique if source == "media" else "",
+        "original_unique_articles_top3": original_unique if source == "media" else "",
+        "diverse_unique_articles_top3": diverse_unique if source == "media" else "",
+        "improved_unique_articles": bool(source == "media" and diverse_unique > original_unique),
+        "original_article_ids_top3": article_top_original,
+        "diverse_article_ids_top3": article_top_diverse,
     }
     return reordered, metrics
 
@@ -289,7 +367,7 @@ def main() -> None:
         year = row.get("year", "")
         source = source_from_topic_id(topic_id)
         docs = parse_json_list(row.get("representative_docs_json", ""))
-        if source != "corporate":
+        if source not in DIVERSIFIED_SOURCES:
             audit_rows.append(
                 {
                     "topic_id": topic_id,
@@ -298,17 +376,32 @@ def main() -> None:
                     "original_n_snippets": len(docs),
                     "upstream_candidate_snippets_added": 0,
                     "n_snippets": len(docs),
+                    "candidate_pool_n_snippets": len(docs),
+                    "retained_upstream_snippets_in_final_json": 0,
+                    "diversity_unit": "",
+                    "available_unique_units_all_snippets": "",
+                    "original_unique_units_top3": "",
+                    "diverse_unique_units_top3": "",
                     "available_unique_companies_all_snippets": "",
                     "original_unique_companies_top3": "",
                     "diverse_unique_companies_top3": "",
+                    "available_unique_articles_all_snippets": "",
+                    "original_unique_articles_top3": "",
+                    "diverse_unique_articles_top3": "",
                     "changed_order": False,
                     "fallback_used": False,
+                    "improved_unique_units": False,
                     "improved_unique_companies": False,
-                    "diversity_outcome": "not_corporate",
+                    "improved_unique_articles": False,
+                    "diversity_outcome": "not_diversified_source",
                     "original_source_doc_ids_top3": top_source_doc_ids(docs, args.visible_limit),
                     "diverse_source_doc_ids_top3": top_source_doc_ids(docs, args.visible_limit),
+                    "original_diversity_keys_top3": "",
+                    "diverse_diversity_keys_top3": "",
                     "original_company_keys_top3": "",
                     "diverse_company_keys_top3": "",
+                    "original_article_ids_top3": "",
+                    "diverse_article_ids_top3": "",
                 }
             )
             continue
@@ -316,14 +409,24 @@ def main() -> None:
         upstream_key = (str(topic_id), int(year) if str(year).strip().isdigit() else -1)
         candidate_docs, upstream_added = merge_candidate_docs(docs, upstream_candidates.get(upstream_key, []))
         upstream_added_total += upstream_added
-        reordered_docs, metrics = diversify_docs(candidate_docs, company_lookup, args.visible_limit)
+        reordered_docs, metrics = diversify_docs(candidate_docs, source, company_lookup, args.visible_limit)
 
         original_chunk_ids = {str(doc.get("chunk_id", "")) for doc in docs if str(doc.get("chunk_id", ""))}
         top_docs = reordered_docs[: args.visible_limit]
         top_chunk_ids = {str(doc.get("chunk_id", "")) for doc in top_docs if str(doc.get("chunk_id", ""))}
-        final_docs = top_docs + [
-            doc for doc in docs if str(doc.get("chunk_id", "")) not in top_chunk_ids
-        ]
+        if source == "media":
+            final_docs = []
+            seen_final_keys: set[str] = set()
+            for doc in top_docs + docs:
+                diversity_key = doc_diversity_key(source, doc, company_lookup)
+                if diversity_key in seen_final_keys:
+                    continue
+                final_docs.append(doc)
+                seen_final_keys.add(diversity_key)
+        else:
+            final_docs = top_docs + [
+                doc for doc in docs if str(doc.get("chunk_id", "")) not in top_chunk_ids
+            ]
         retained_upstream = sum(
             1 for doc in top_docs if str(doc.get("chunk_id", "")) not in original_chunk_ids
         )
@@ -347,10 +450,12 @@ def main() -> None:
     audit = pd.DataFrame(audit_rows)
     audit.to_csv(audit_path, index=False)
 
-    original_non_corporate = original.loc[original["topic_id"].map(source_from_topic_id).ne("corporate")].reset_index(drop=True)
-    updated_non_corporate = updated.loc[updated["topic_id"].map(source_from_topic_id).ne("corporate")].reset_index(drop=True)
+    original_academic = original.loc[original["topic_id"].map(source_from_topic_id).eq("academic")].reset_index(drop=True)
+    updated_academic = updated.loc[updated["topic_id"].map(source_from_topic_id).eq("academic")].reset_index(drop=True)
     corporate_audit = audit.loc[audit["source"].astype(str).eq("corporate")].copy()
     corporate_three = corporate_audit.loc[corporate_audit["original_n_snippets"] >= args.visible_limit].copy()
+    media_audit = audit.loc[audit["source"].astype(str).eq("media")].copy()
+    media_three = media_audit.loc[media_audit["original_n_snippets"] >= args.visible_limit].copy()
     manifest = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "app_data_dir": str(app_data_dir),
@@ -361,23 +466,51 @@ def main() -> None:
         "selected_topics_csv": str(args.selected_topics_csv),
         "sec_raw_dir": str(args.sec_raw_dir),
         "sec_lookup_rows": int(len(sec_lookup)),
-        "candidate_pool_note": "Current app snippets are preserved first; upstream corporate evidence candidates are appended when absent.",
+        "candidate_pool_note": "Current app snippets are preserved first; upstream corporate/media evidence candidates are appended when absent.",
         "visible_limit": int(args.visible_limit),
         "upstream_candidate_snippets_added_to_pool": int(upstream_added_total),
-        "upstream_snippets_retained_in_final_json": int(corporate_audit["retained_upstream_snippets_in_final_json"].sum()),
+        "upstream_snippets_retained_in_final_json": int(audit["retained_upstream_snippets_in_final_json"].sum()),
+        "corporate_upstream_snippets_retained_in_final_json": int(
+            corporate_audit["retained_upstream_snippets_in_final_json"].sum()
+        ),
+        "media_upstream_snippets_retained_in_final_json": int(
+            media_audit["retained_upstream_snippets_in_final_json"].sum()
+        ),
         "columns_unchanged": list(original.columns) == list(updated.columns),
         "row_count_unchanged": int(len(original)) == int(len(updated)),
-        "academic_media_rows_identical": bool(original_non_corporate.equals(updated_non_corporate)),
+        "academic_rows_identical": bool(original_academic.equals(updated_academic)),
         "corporate_rows": int(len(corporate_audit)),
         "corporate_rows_with_3_or_more_snippets": int(len(corporate_three)),
         "corporate_rows_repeated_company_top3_before": int(
-            (corporate_three["original_unique_companies_top3"] < args.visible_limit).sum()
+            corporate_three["original_has_repeated_unit_top3"].sum()
         ),
         "corporate_rows_repeated_company_top3_after": int(
-            (corporate_three["diverse_unique_companies_top3"] < args.visible_limit).sum()
+            corporate_three["diverse_has_repeated_unit_top3"].sum()
         ),
         "corporate_rows_improved_unique_company_count": int(corporate_audit["improved_unique_companies"].sum()),
         "corporate_rows_changed_order": int(corporate_audit["changed_order"].sum()),
+        "media_rows": int(len(media_audit)),
+        "media_rows_with_3_or_more_snippets": int(len(media_three)),
+        "media_rows_repeated_article_top3_before": int(
+            media_three["original_has_repeated_unit_top3"].sum()
+        ),
+        "media_rows_repeated_article_top3_after": int(
+            media_three["diverse_has_repeated_unit_top3"].sum()
+        ),
+        "media_rows_improved_unique_article_count": int(media_audit["improved_unique_articles"].sum()),
+        "media_rows_changed_order": int(media_audit["changed_order"].sum()),
+        "media_improved_from_1_to_2_or_3_articles": int(
+            (
+                (media_audit["original_unique_articles_top3"] == 1)
+                & (media_audit["diverse_unique_articles_top3"] > 1)
+            ).sum()
+        ),
+        "media_improved_from_2_to_3_articles": int(
+            (
+                (media_audit["original_unique_articles_top3"] == 2)
+                & (media_audit["diverse_unique_articles_top3"] >= 3)
+            ).sum()
+        ),
         "improved_from_1_to_2_or_3": int(
             (
                 (corporate_audit["original_unique_companies_top3"] == 1)
@@ -390,9 +523,13 @@ def main() -> None:
                 & (corporate_audit["diverse_unique_companies_top3"] >= 3)
             ).sum()
         ),
-        "outcome_counts": {
+        "corporate_outcome_counts": {
             str(key): int(value)
             for key, value in corporate_audit["diversity_outcome"].value_counts().sort_index().to_dict().items()
+        },
+        "media_outcome_counts": {
+            str(key): int(value)
+            for key, value in media_audit["diversity_outcome"].value_counts().sort_index().to_dict().items()
         },
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
