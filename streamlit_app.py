@@ -816,6 +816,42 @@ def evidence_for_year(evidence: pd.DataFrame, topic_id: str, selected_year: int 
     return topic_evidence.sort_values("year").iloc[-1]
 
 
+def render_evidence_doc(doc: dict[str, Any], index: int, selected_year: int, row_public_safe: bool) -> None:
+    metadata = [
+        f"year: {doc.get('year', selected_year)}",
+        f"source: {doc.get('source', '')}",
+        f"chunk_id: {doc.get('chunk_id', '')}",
+    ]
+    source_date = clean_text(doc.get("source_date", ""))
+    if source_date:
+        metadata.append(f"date: {source_date}")
+    display_word_count = clean_text(doc.get("display_word_count", ""))
+    if display_word_count:
+        metadata.append(f"words shown: {display_word_count}")
+    document_id = clean_text(doc.get("source_doc_id", "")) or clean_text(doc.get("document_id", ""))
+    if document_id:
+        metadata.append(f"doc_id: {document_id}")
+    link = clean_text(doc.get("source_link", ""))
+    source = clean_text(doc.get("source", ""))
+    display_policy = clean_text(doc.get("display_policy", ""))
+    if row_public_safe and source == "media":
+        label = "Guardian excerpt"
+    elif row_public_safe and display_policy == "full_research_unit":
+        label = "Research unit"
+    else:
+        label = "Document"
+    with st.container(border=True):
+        st.markdown(f"**{label} {index}**")
+        st.caption(" | ".join(item for item in metadata if item))
+        st.write(clean_text(doc.get("snippet", "")))
+        reference = clean_text(doc.get("reference_note", ""))
+        if reference:
+            st.caption(reference)
+        if link:
+            button_label = "Open SEC filing" if source == "corporate" else "Open original source"
+            st.link_button(button_label, link)
+
+
 def render_evidence(evidence: pd.DataFrame, topic_id: str, series: pd.DataFrame, key_prefix: str = "") -> None:
     series = normalize_series(series)
     available_years = sorted(
@@ -850,40 +886,15 @@ def render_evidence(evidence: pd.DataFrame, topic_id: str, series: pd.DataFrame,
         st.caption("Representative documents and source-limited excerpts")
     else:
         st.caption("Representative documents, local full text")
-    for index, doc in enumerate(snippets[:3], start=1):
-        metadata = [
-            f"year: {doc.get('year', selected_year)}",
-            f"source: {doc.get('source', '')}",
-            f"chunk_id: {doc.get('chunk_id', '')}",
-        ]
-        source_date = clean_text(doc.get("source_date", ""))
-        if source_date:
-            metadata.append(f"date: {source_date}")
-        display_word_count = clean_text(doc.get("display_word_count", ""))
-        if display_word_count:
-            metadata.append(f"words shown: {display_word_count}")
-        document_id = clean_text(doc.get("source_doc_id", "")) or clean_text(doc.get("document_id", ""))
-        if document_id:
-            metadata.append(f"doc_id: {document_id}")
-        link = clean_text(doc.get("source_link", ""))
-        source = clean_text(doc.get("source", ""))
-        display_policy = clean_text(doc.get("display_policy", ""))
-        if row_public_safe and source == "media":
-            label = "Guardian excerpt"
-        elif row_public_safe and display_policy == "full_research_unit":
-            label = "Research unit"
-        else:
-            label = "Document"
-        with st.container(border=True):
-            st.markdown(f"**{label} {index}**")
-            st.caption(" | ".join(item for item in metadata if item))
-            st.write(clean_text(doc.get("snippet", "")))
-            reference = clean_text(doc.get("reference_note", ""))
-            if reference:
-                st.caption(reference)
-            if link:
-                button_label = "Open SEC filing" if source == "corporate" else "Open original source"
-                st.link_button(button_label, link)
+
+    primary_snippets = snippets[:3]
+    additional_snippets = snippets[3:10]
+    for index, doc in enumerate(primary_snippets, start=1):
+        render_evidence_doc(doc, index, selected_year, row_public_safe)
+    if additional_snippets:
+        with st.expander(f"Additional evidence units ({len(additional_snippets)})", expanded=False):
+            for index, doc in enumerate(additional_snippets, start=4):
+                render_evidence_doc(doc, index, selected_year, row_public_safe)
 
 
 def render_topic_detail(

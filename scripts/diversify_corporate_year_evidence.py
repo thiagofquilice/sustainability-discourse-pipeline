@@ -2,9 +2,9 @@
 """Diversify Streamlit evidence snippets for selected sources.
 
 This post-processing script keeps the original Streamlit data schema intact.
-It reorders corporate representative_docs_json lists so that the first three
-visible snippets prefer distinct company keys, and media lists so that the
-first three visible snippets prefer distinct news articles.
+It reorders representative_docs_json lists so that visible corporate
+snippets prefer distinct company keys, media snippets prefer distinct news
+articles, and academic snippets prefer distinct source documents.
 
 Because the released app data stores only the visible snippets, the script
 also reads the upstream micro-topic year evidence file, which contains
@@ -53,7 +53,7 @@ DEFAULT_REVIEWED_MICRO_ROOT = Path(
     "bertopic_micro_merged_multiaspect_reviewed"
 )
 DEFAULT_SEC_RAW_DIR = Path("/home/thiago/Topic_modelling_dataset_unico")
-DIVERSIFIED_SOURCES = {"corporate", "media"}
+DIVERSIFIED_SOURCES = {"academic", "corporate", "media"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--selected-topics-csv", type=Path, default=DEFAULT_SELECTED_TOPICS)
     parser.add_argument("--reviewed-micro-root", type=Path, default=DEFAULT_REVIEWED_MICRO_ROOT)
     parser.add_argument("--sec-raw-dir", type=Path, default=DEFAULT_SEC_RAW_DIR)
-    parser.add_argument("--visible-limit", type=int, default=3)
+    parser.add_argument("--visible-limit", type=int, default=10)
     return parser.parse_args()
 
 
@@ -241,12 +241,12 @@ def candidate_origins_for_docs(docs: list[dict[str, Any]], limit: int) -> str:
 def deep_doc_from_row(
     row: pd.Series,
     *,
+    source: str,
     sec_lookup: dict[str, dict[str, str]] | None,
     public_safe: bool,
     snippet_chars: int,
     guardian_word_limit: int,
 ) -> dict[str, Any] | None:
-    source = "corporate"
     source_doc_id = clean_text(row.get("source_doc_id", ""))
     text, truncated, word_count, display_policy = display_text(
         clean_text(row.get("text", "")),
@@ -292,7 +292,8 @@ def build_deep_corporate_candidate_docs(
     requests: dict[str, list[tuple[str, str, int]]] = {}
     for topic_id, year in topic_years:
         subgroup, final_group_id = topic_parts(topic_id)
-        if not subgroup.startswith("corporate_") or not final_group_id:
+        source = source_from_topic_id(subgroup)
+        if source not in DIVERSIFIED_SOURCES or not final_group_id:
             continue
         requests.setdefault(subgroup, []).append((topic_id, final_group_id, year))
 
@@ -349,6 +350,7 @@ def build_deep_corporate_candidate_docs(
                     continue
                 doc = deep_doc_from_row(
                     row,
+                    source=source_from_topic_id(subgroup),
                     sec_lookup=sec_lookup,
                     public_safe=public_safe,
                     snippet_chars=snippet_chars,
@@ -448,7 +450,7 @@ def diversify_docs(
                 continue
             reordered.append(doc)
             reordered_keys.add(diversity_key)
-    elif source == "corporate":
+    elif source in {"academic", "corporate"}:
         if len(selected_docs) >= visible_limit:
             reordered = selected_docs + [doc for index, doc in enumerate(docs) if index not in selected_set]
         else:
@@ -570,14 +572,14 @@ def main() -> None:
         snippet_chars=snippet_chars,
         guardian_word_limit=guardian_word_limit,
     )
-    corporate_topic_years = [
+    diversified_topic_years = [
         (str(row.topic_id), int(row.year))
         for row in original.itertuples(index=False)
-        if source_from_topic_id(row.topic_id) == "corporate" and str(row.year).strip().isdigit()
+        if source_from_topic_id(row.topic_id) in DIVERSIFIED_SOURCES and str(row.year).strip().isdigit()
     ]
     deep_candidates = build_deep_corporate_candidate_docs(
         reviewed_micro_root=args.reviewed_micro_root,
-        topic_years=corporate_topic_years,
+        topic_years=diversified_topic_years,
         sec_lookup=sec_lookup,
         public_safe=public_safe,
         snippet_chars=snippet_chars,
@@ -638,7 +640,7 @@ def main() -> None:
             "stage12_evidence",
         )
         deep_added = 0
-        if source == "corporate":
+        if source in DIVERSIFIED_SOURCES:
             candidate_docs, deep_added = merge_candidate_docs(
                 candidate_docs,
                 deep_candidates.get(upstream_key, []),
@@ -658,7 +660,7 @@ def main() -> None:
                     continue
                 final_docs.append(doc)
                 seen_final_keys.add(diversity_key)
-        elif source == "corporate":
+        elif source in {"academic", "corporate"}:
             final_docs = top_docs
         else:
             final_docs = top_docs
@@ -712,7 +714,7 @@ def main() -> None:
         "reviewed_micro_root": str(args.reviewed_micro_root),
         "sec_raw_dir": str(args.sec_raw_dir),
         "sec_lookup_rows": int(len(sec_lookup)),
-        "candidate_pool_note": "Current app snippets are preserved first; upstream corporate/media evidence candidates are appended; corporate rows may also draw from reviewed document_topics.parquet to fill distinct companies.",
+        "candidate_pool_note": "Current app snippets are preserved first; upstream evidence candidates are appended; diversified rows may also draw from reviewed document_topics.parquet to fill distinct evidence units.",
         "visible_limit": int(args.visible_limit),
         "upstream_candidate_snippets_added_to_pool": int(upstream_added_total),
         "deep_candidate_snippets_added_to_pool": int(deep_added_total),
